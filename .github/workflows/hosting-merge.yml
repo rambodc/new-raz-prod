@@ -1,0 +1,42 @@
+name: Production — Firebase Hosting
+on:
+  push:
+    branches: [production]
+    paths: ["src/**", "public/**", "index.html", "package.json", "package-lock.json", "vite.config.ts", "firebase.json", ".firebaserc", ".github/workflows/hosting-merge.yml"]
+  workflow_dispatch:
+permissions:
+  contents: read
+  id-token: write
+concurrency:
+  group: hosting-production
+  cancel-in-progress: false
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment: Prod
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - name: Configure Firebase web app
+        run: |
+          echo "VITE_FIREBASE_API_KEY=${{ vars.FIREBASE_API_KEY }}" >> "$GITHUB_ENV"
+          echo "VITE_FIREBASE_AUTH_DOMAIN=${{ vars.FIREBASE_AUTH_DOMAIN }}" >> "$GITHUB_ENV"
+          echo "VITE_FIREBASE_PROJECT_ID=new-raz-prod" >> "$GITHUB_ENV"
+          echo "VITE_FIREBASE_STORAGE_BUCKET=${{ vars.FIREBASE_STORAGE_BUCKET }}" >> "$GITHUB_ENV"
+          echo "VITE_FIREBASE_MESSAGING_SENDER_ID=${{ vars.FIREBASE_MESSAGING_SENDER_ID }}" >> "$GITHUB_ENV"
+          echo "VITE_FIREBASE_APP_ID=${{ vars.FIREBASE_APP_ID }}" >> "$GITHUB_ENV"
+      - name: Validate deployment identity
+        run: |
+          test -n "${{ vars.GCP_WIF_PROVIDER }}" || { echo "Missing Prod variable GCP_WIF_PROVIDER"; exit 1; }
+          test -n "${{ vars.GCP_SERVICE_ACCOUNT_EMAIL }}" || { echo "Missing Prod variable GCP_SERVICE_ACCOUNT_EMAIL"; exit 1; }
+      - uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ vars.GCP_WIF_PROVIDER }}
+          service_account: ${{ vars.GCP_SERVICE_ACCOUNT_EMAIL }}
+      - run: npm ci
+      - run: npm run lint && npm test && npm run build
+      - run: npm install --global firebase-tools@14.15.2
+      - run: firebase deploy --only hosting --project new-raz-prod --non-interactive --message "CI hosting deploy"

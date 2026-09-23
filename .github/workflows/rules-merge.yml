@@ -1,0 +1,38 @@
+name: Production — Firebase Rules
+on:
+  push:
+    branches: [production]
+    paths: ["firestore.rules", "storage.rules", "firestore.indexes.json", "tests/rules.test.mjs", "firebase.json", "package.json", "package-lock.json", ".github/workflows/rules-merge.yml"]
+  workflow_dispatch:
+permissions:
+  contents: read
+  id-token: write
+concurrency:
+  group: rules-production
+  cancel-in-progress: false
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment: Prod
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 21
+      - name: Validate deployment identity
+        run: |
+          test -n "${{ vars.GCP_WIF_PROVIDER }}" || { echo "Missing Prod variable GCP_WIF_PROVIDER"; exit 1; }
+          test -n "${{ vars.GCP_SERVICE_ACCOUNT_EMAIL }}" || { echo "Missing Prod variable GCP_SERVICE_ACCOUNT_EMAIL"; exit 1; }
+      - uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ vars.GCP_WIF_PROVIDER }}
+          service_account: ${{ vars.GCP_SERVICE_ACCOUNT_EMAIL }}
+      - run: npm ci
+      - run: npm install --global firebase-tools@14.15.2
+      - run: npm run test:rules
+      - run: firebase deploy --only firestore:rules,firestore:indexes,storage --project new-raz-prod --non-interactive --message "CI rules deploy"
