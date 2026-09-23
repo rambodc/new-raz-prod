@@ -33,6 +33,6 @@ jobs:
           workload_identity_provider: ${{ vars.GCP_WIF_PROVIDER }}
           service_account: ${{ vars.GCP_SERVICE_ACCOUNT_EMAIL }}
       - run: npm ci
-      - run: npm install --global firebase-tools@14.15.2
+      - run: npm install --global firebase-tools@15.22.1
       - run: npm run test:rules
       - run: firebase deploy --only firestore:rules,firestore:indexes,storage --project new-raz-prod --non-interactive --message "CI rules deploy"

@@ -54,6 +54,6 @@ jobs:
         with:
           workload_identity_provider: ${{ vars.GCP_WIF_PROVIDER }}
           service_account: ${{ vars.GCP_SERVICE_ACCOUNT_EMAIL }}
-      - run: npm install --global firebase-tools@14.15.2
+      - run: npm install --global firebase-tools@15.22.1
       - name: Deploy pull request preview
         run: firebase hosting:channel:deploy "pr-${{ github.event.pull_request.number }}" --project new-raz-prod --non-interactive --expires 7d

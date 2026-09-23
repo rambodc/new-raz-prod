@@ -38,5 +38,5 @@ jobs:
           service_account: ${{ vars.GCP_SERVICE_ACCOUNT_EMAIL }}
       - run: npm ci
       - run: npm run lint && npm test && npm run build
-      - run: npm install --global firebase-tools@14.15.2
+      - run: npm install --global firebase-tools@15.22.1
       - run: firebase deploy --only hosting --project new-raz-prod --non-interactive --message "CI hosting deploy"

@@ -31,5 +31,5 @@ jobs:
           service_account: ${{ vars.GCP_SERVICE_ACCOUNT_EMAIL }}
       - run: npm ci --prefix functions
       - run: npm run lint --prefix functions && npm test --prefix functions
-      - run: npm install --global firebase-tools@14.15.2
+      - run: npm install --global firebase-tools@15.22.1
       - run: firebase deploy --only functions --project new-raz-prod --non-interactive --message "CI functions deploy"
