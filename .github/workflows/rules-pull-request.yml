@@ -20,5 +20,5 @@ jobs:
           distribution: temurin
           java-version: 21
       - run: npm ci
-      - run: npm install --global firebase-tools@14.15.2
+      - run: npm install --global firebase-tools@15.22.1
       - run: npm run test:rules
