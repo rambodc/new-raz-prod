@@ -5,16 +5,18 @@ import { httpsCallable } from "firebase/functions";
 import { ArrowDown, ArrowUp, CircleHelp, Menu, MessageSquarePlus, Plus, Trash2, X } from "lucide-react";
 import { Link, useLocation } from "react-router-dom";
 import { useAuth } from "../auth/AuthProvider";
+import { ChatCardRenderer } from "../cards/ChatCardRenderer";
+import type { ChatCardMessage } from "../cards/types";
+import type { AuthMode } from "../cards/types-auth";
 import { Brand } from "../components/Brand";
 import { auth } from "../firebase";
 import { db, functions } from "../firebaseServices";
 
-type Message = { role: "user" | "assistant"; content: string };
+type Message = ChatCardMessage;
 type ChatMeta = { id: string; title: string; updatedAt?: { toMillis?: () => number } };
 type AskRequest = { message: string; conversationId?: string };
-type ReplyData = { text: string; conversationId?: string };
+type ReplyData = { text: string; card?: "account-access"; conversationId?: string };
 type Chunk = { text?: string };
-type AuthMode = "signin" | "signup" | "reset" | null;
 const suggestions = ["What is Razzberry?", "How could it help musicians?", "What does blockchain have to do with it?"];
 const ask = httpsCallable<AskRequest, ReplyData, Chunk>(functions, "askRazzberry", { timeout: 120_000 });
 const transfer = httpsCallable<{ messages: Message[]; conversationId?: string }, { conversationId: string }>(functions, "adoptGuestConversation");
@@ -87,7 +89,7 @@ export function Home({ initialAuthMode }: { initialAuthMode?: AuthMode } = {}) {
       }
       const final = await result.data;
       if (!answer) answer = final.text;
-      setMessages([...next, { role: "assistant", content: answer }]);
+      setMessages([...next, { role: "assistant", content: answer, ...(final.card ? { card: final.card } : {}) }]);
       if (final.conversationId) setConversationId(final.conversationId);
     } catch (error) {
       setMessages(next);
@@ -127,6 +129,11 @@ export function Home({ initialAuthMode }: { initialAuthMode?: AuthMode } = {}) {
     <div className="history-list">{chatList.map((chat) => <div className={`history-item ${conversationId === chat.id ? "active" : ""}`} key={chat.id}><button onClick={() => void openChat(chat)}>{chat.title || "Razzberry conversation"}</button><button aria-label="Delete conversation" onClick={() => void deleteChat(chat.id)}><Trash2 size={14} /></button></div>)}</div>
     <div className="sidebar-bottom">{user ? <><div className="sidebar-user"><span>{user.email?.[0]?.toUpperCase() ?? "R"}</span><small>{user.email}</small></div><button className="sidebar-signin" onClick={() => void signOut(auth).then(() => { setConversationId(undefined); setAuthMode(null); })}>Sign out</button></> : <button className="sidebar-signin" onClick={() => setAuthMode("signin")}>Sign in to save chats</button>}</div>
   </aside>;
+  const cardProps = {
+    user: user ?? null, mode: authMode, setMode: setAuthMode, email, setEmail, password, setPassword, busy,
+    onSubmit: (event: FormEvent) => void submitAuth(event),
+    onSignOut: () => { void signOut(auth).then(() => { setConversationId(undefined); setAuthMode(null); }); },
+  };
   const title = authMode === "signup" ? "Create your account" : authMode === "signin" ? "Sign in to Razzberry" : "Reset your password";
 
   return <main className={`chat-app ${mobileKeyboard ? "keyboard-open" : ""}`}>
@@ -137,6 +144,7 @@ export function Home({ initialAuthMode }: { initialAuthMode?: AuthMode } = {}) {
         {showWelcome ? <div className="welcome-content"><div className="welcome-symbol"><span>R</span><i /><i /><i /></div><span className="eyebrow"><span className="live-dot" /> A CLEARER WAY TO TALK ABOUT CREATIVE RIGHTS</span><h1>What would you like<br />to <em>understand?</em></h1><p>I’m Razzberry’s guide. Ask about the idea, the problem it explores, or what might come next.</p><div className="suggestion-grid">{suggestions.map((suggestion) => <button key={suggestion} onClick={() => void send(suggestion)}><span>{suggestion}</span><ArrowDown size={15} /></button>)}</div>{authMode && !user && <div className="inline-auth-card route-auth-card"><div className="inline-auth-copy"><strong>{title}</strong><span>{authMode === "reset" ? "Enter your email and we’ll send a reset link." : "Use your email to continue to Razzberry."}</span></div><form className="inline-auth-form" onSubmit={(event) => void submitAuth(event)}><label htmlFor="chat-email">Email</label><input id="chat-email" type="email" autoComplete="email" required placeholder="you@example.com" value={email} onChange={(event) => setEmail(event.target.value)} />{authMode !== "reset" && <><label htmlFor="chat-password">Password</label><input id="chat-password" type="password" autoComplete={authMode === "signup" ? "new-password" : "current-password"} required minLength={authMode === "signup" ? 8 : undefined} placeholder={authMode === "signup" ? "At least 8 characters" : "Your password"} value={password} onChange={(event) => setPassword(event.target.value)} /></>}<button className="button" disabled={busy}>{authMode === "signup" ? "Create account" : authMode === "reset" ? "Send reset link" : "Sign in"}</button><div className="inline-auth-switch"><button type="button" onClick={() => setAuthMode("signin")}>Sign in</button><button type="button" onClick={() => setAuthMode("signup")}>Sign up</button><button type="button" onClick={() => setAuthMode("reset")}>Forgot password?</button></div></form></div>}</div> : <div className="message-list">{messages.map((item, index) => <article className={`chat-message ${item.role}`} key={`${index}-${item.role}`}><div className="message-avatar">{item.role === "assistant" ? <span>R</span> : user?.email?.[0]?.toUpperCase() || "Y"}</div><div className="message-body"><div className="message-author">{item.role === "assistant" ? "Razzberry" : "You"}</div><div className="message-content">{item.content}</div></div></article>)}
           {!user && messages.some((item) => item.role === "assistant") && <div className="inline-auth-card"><div className="auth-card-icon"><CircleHelp size={17} /></div><div className="inline-auth-copy"><strong>Keep this conversation</strong><span>Create a free account to save your chats and pick up where you left off.</span></div>{authMode ? <form className="inline-auth-form" onSubmit={(event) => void submitAuth(event)}><label htmlFor="chat-email">Email</label><input id="chat-email" type="email" autoComplete="email" required placeholder="you@example.com" value={email} onChange={(event) => setEmail(event.target.value)} />{authMode !== "reset" && <><label htmlFor="chat-password">Password</label><input id="chat-password" type="password" autoComplete={authMode === "signup" ? "new-password" : "current-password"} required minLength={authMode === "signup" ? 8 : undefined} placeholder={authMode === "signup" ? "At least 8 characters" : "Your password"} value={password} onChange={(event) => setPassword(event.target.value)} /></>}<button className="button" disabled={busy}>{authMode === "signup" ? "Create account" : authMode === "reset" ? "Send reset link" : "Sign in"}</button><div className="inline-auth-switch">{authMode !== "signin" && <button type="button" onClick={() => setAuthMode("signin")}>Sign in</button>}{authMode !== "signup" && <button type="button" onClick={() => setAuthMode("signup")}>Sign up</button>}{authMode !== "reset" && <button type="button" onClick={() => setAuthMode("reset")}>Forgot password?</button>}</div></form> : <><label className="inline-email-label" htmlFor="inline-email">Your email</label><input id="inline-email" className="inline-email" type="email" placeholder="you@example.com" value={email} onChange={(event) => setEmail(event.target.value)} /><div className="inline-auth-actions"><button onClick={() => setAuthMode("signin")}>Sign in</button><button className="button" onClick={() => setAuthMode("signup")}>Sign up</button></div></>}</div>}
         </div>}
+        {user && messages.at(-1)?.card === "account-access" && <ChatCardRenderer type="account-access" {...cardProps} />}
         {busy && <div className="typing-status"><span /><span /><span /> Razzberry is thinking</div>}
         {message && <div className="chat-notice" role="status">{message}</div>}
       </div>

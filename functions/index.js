@@ -10,6 +10,17 @@ const openAiApiKey = defineSecret("OPENAI_API_KEY2");
 const MAX_MESSAGE_LENGTH = 1500;
 const MAX_HISTORY = 20;
 const PROMPT = `You are Razzberry's concise, friendly product guide. Answer only questions about Razzberry and the ideas below. If a request is unrelated, gently say you can only help with Razzberry. If the deck or facts do not answer a question, say you don't know yet; never invent details. Clearly call unbuilt product capabilities future ideas, possibilities, or plans—not features that exist. Keep answers simple, useful, and under 120 words. Razzberry is an early-stage concept exploring clearer records for creative works, the people involved, ownership, agreements, and how rights/value may move over time. It is not yet a launched rights-management product, and no such tools currently exist. One participatory idea discussed is a Song Made of Places: people contribute short environmental sounds from where they live, which a musician could arrange into a composition. This is a collaborative music concept, not an AI music generator and not a built feature. Blockchain (potentially XRPL) and decentralized file storage (potentially IPFS) are technologies to explore, not confirmed implementation choices. Explain that records can aid coordination but do not by themselves prove legal ownership or replace contracts, registries, or professional legal advice.`;
+const ACCOUNT_ACCESS_CARD = "account-access";
+
+export function accountAccessReply(message, email = "") {
+  if (!/(?:\bsign[ -]?(?:in|up)\b|\b(?:create|make|open)\s+(?:(?:an?|my)\s+)?account\b|\bregister\b|\bnew account\b)/i.test(message)) return null;
+  return {
+    card: ACCOUNT_ACCESS_CARD,
+    text: email
+      ? `You’re already signed in as ${email}. Your Razzberry account is active. If you meant to create a separate account, sign out first, then use the sign-up card here.`
+      : "Yes—sign-up is available. Create a free account here to save your conversations and continue them later.",
+  };
+}
 
 export function platformHealth() {
   return { status: "ok", service: "razzberry", checkedAt: new Date().toISOString() };
@@ -40,7 +51,7 @@ function cleanMessages(value) {
     if (!entry || !["user", "assistant"].includes(entry.role) || typeof entry.content !== "string" || !entry.content.trim() || entry.content.length > MAX_MESSAGE_LENGTH) {
       throw new HttpsError("invalid-argument", "Invalid conversation message.");
     }
-    return { role: entry.role, content: entry.content.trim() };
+    return { role: entry.role, content: entry.content.trim(), ...(entry.card === ACCOUNT_ACCESS_CARD ? { card: entry.card } : {}) };
   });
   if (clean.some((entry, index) => entry.role !== (index % 2 === 0 ? "user" : "assistant"))) {
     throw new HttpsError("invalid-argument", "Conversation message order is invalid.");
@@ -121,9 +132,11 @@ export const askRazzberry = onCall({ region: "us-central1", enforceAppCheck: tru
     prior = previousMessages.docs.map((doc) => ({ role: doc.get("role"), content: doc.get("content") }));
   }
   const history = [...prior, { role: "user", content: prompt.trim() }];
-  const text = await openAiReply(history, openAiApiKey.value(), (delta) => {
+  const accountReply = accountAccessReply(prompt, request.auth?.token?.email || "");
+  const text = accountReply?.text || await openAiReply(history, openAiApiKey.value(), (delta) => {
     if (request.acceptsStreaming) response.sendChunk({ text: delta });
   });
+  if (accountReply && request.acceptsStreaming) response.sendChunk({ text });
   let conversationId;
   if (uid) {
     conversationId = id || db.collection("users").doc(uid).collection("conversations").doc().id;
@@ -134,14 +147,14 @@ export const askRazzberry = onCall({ region: "us-central1", enforceAppCheck: tru
       const sequence = snapshot.get("messageCount") || 0;
       const previousMessages = await transaction.get(messagesRef.orderBy("sequence", "asc"));
       transaction.set(messagesRef.doc(String(sequence).padStart(8, "0")), { role: "user", content: prompt.trim(), sequence });
-      transaction.set(messagesRef.doc(String(sequence + 1).padStart(8, "0")), { role: "assistant", content: text, sequence: sequence + 1 });
+      transaction.set(messagesRef.doc(String(sequence + 1).padStart(8, "0")), { role: "assistant", content: text, sequence: sequence + 1, ...(accountReply ? { card: accountReply.card } : {}) });
       const removeCount = Math.max(0, previousMessages.size + 2 - MAX_HISTORY);
       previousMessages.docs.slice(0, removeCount).forEach((doc) => transaction.delete(doc.ref));
       const title = snapshot.get("title");
       transaction.set(ref, { title: title || prompt.trim().slice(0, 72), messageCount: sequence + 2, updatedAt: FieldValue.serverTimestamp(), ...(!title ? { createdAt: FieldValue.serverTimestamp() } : {}) }, { merge: true });
     });
   }
-  return { text, ...(conversationId ? { conversationId } : {}) };
+  return { text, ...(accountReply ? { card: accountReply.card } : {}), ...(conversationId ? { conversationId } : {}) };
 });
 
 export const adoptGuestConversation = onCall({ region: "us-central1", enforceAppCheck: true }, async (request) => {
@@ -164,7 +177,7 @@ export const getConversation = onCall({ region: "us-central1", enforceAppCheck: 
   const snapshot = await db.collection("users").doc(uid).collection("conversations").doc(id).get();
   if (!snapshot.exists) throw new HttpsError("not-found", "Conversation not found.");
   const messages = await snapshot.ref.collection("messages").orderBy("sequence", "asc").get();
-  return { messages: messages.docs.map((doc) => ({ role: doc.get("role"), content: doc.get("content") })) };
+  return { messages: messages.docs.map((doc) => ({ role: doc.get("role"), content: doc.get("content"), ...(doc.get("card") === ACCOUNT_ACCESS_CARD ? { card: ACCOUNT_ACCESS_CARD } : {}) })) };
 });
 
 export const deleteConversation = onCall({ region: "us-central1", enforceAppCheck: true }, async (request) => {
