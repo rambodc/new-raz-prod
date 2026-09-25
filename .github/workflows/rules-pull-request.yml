@@ -2,7 +2,7 @@ name: Pull request — Firebase Rules validation
 on:
   pull_request:
     branches: [production]
-    paths: ["firestore.rules", "storage.rules", "firestore.indexes.json", "tests/rules.test.mjs", "firebase.json", "package.json", "package-lock.json", ".github/workflows/rules-pull-request.yml"]
+    paths: ["firestore.rules", "storage.rules", "firestore.indexes.json", "tests/rules.test.mjs", "firebase.json", "package.json", "package-lock.json", ".github/workflows/rules-pull-request.yml", ".github/workflows/hosting-pull-request.yml"]
   workflow_dispatch:
 permissions:
   contents: read
