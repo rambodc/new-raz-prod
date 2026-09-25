@@ -28,14 +28,18 @@ jobs:
           echo "VITE_FIREBASE_STORAGE_BUCKET=${{ vars.FIREBASE_STORAGE_BUCKET }}" >> "$GITHUB_ENV"
           echo "VITE_FIREBASE_MESSAGING_SENDER_ID=${{ vars.FIREBASE_MESSAGING_SENDER_ID }}" >> "$GITHUB_ENV"
           echo "VITE_FIREBASE_APP_ID=${{ vars.FIREBASE_APP_ID }}" >> "$GITHUB_ENV"
+          echo "VITE_FIREBASE_APP_CHECK_SITE_KEY=${{ vars.FIREBASE_APP_CHECK_SITE_KEY }}" >> "$GITHUB_ENV"
       - name: Validate deployment identity
         run: |
           test -n "${{ vars.GCP_WIF_PROVIDER }}" || { echo "Missing Prod variable GCP_WIF_PROVIDER"; exit 1; }
           test -n "${{ vars.GCP_SERVICE_ACCOUNT_EMAIL }}" || { echo "Missing Prod variable GCP_SERVICE_ACCOUNT_EMAIL"; exit 1; }
+          test -n "${{ vars.FIREBASE_APP_CHECK_SITE_KEY }}" || { echo "Missing Prod variable FIREBASE_APP_CHECK_SITE_KEY"; exit 1; }
       - uses: google-github-actions/auth@v2
         with:
           workload_identity_provider: ${{ vars.GCP_WIF_PROVIDER }}
           service_account: ${{ vars.GCP_SERVICE_ACCOUNT_EMAIL }}
+      - name: Validate OpenAI secret exists
+        run: gcloud secrets versions describe latest --secret=OPENAI_API_KEY2 --project=new-raz-prod --format='value(state)' | grep -qx ENABLED || { echo "Add an enabled OPENAI_API_KEY2 version to Secret Manager before deploying the chat app"; exit 1; }
       - run: npm ci
       - run: npm run lint && npm test && npm run build
       - run: npm install --global firebase-tools@15.22.1
