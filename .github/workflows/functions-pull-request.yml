@@ -2,7 +2,7 @@ name: Pull request — Functions validation
 on:
   pull_request:
     branches: [production]
-    paths: ["functions/**", "firebase.json", ".github/workflows/functions-pull-request.yml"]
+    paths: ["functions/**", "firebase.json", ".github/workflows/functions-pull-request.yml", ".github/workflows/hosting-pull-request.yml"]
   workflow_dispatch:
 permissions:
   contents: read
