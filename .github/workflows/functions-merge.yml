@@ -29,6 +29,8 @@ jobs:
         with:
           workload_identity_provider: ${{ vars.GCP_WIF_PROVIDER }}
           service_account: ${{ vars.GCP_SERVICE_ACCOUNT_EMAIL }}
+      - name: Validate OpenAI secret exists
+        run: gcloud secrets versions describe latest --secret=OPENAI_API_KEY2 --project=new-raz-prod --format='value(state)' | grep -qx ENABLED || { echo "Add an enabled OPENAI_API_KEY2 version to Secret Manager before deploying chat functions"; exit 1; }
       - run: npm ci --prefix functions
       - run: npm run lint --prefix functions && npm test --prefix functions
       - run: npm install --global firebase-tools@15.22.1
