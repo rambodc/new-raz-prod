@@ -38,6 +38,8 @@ export function Home({ initialAuthMode }: { initialAuthMode?: AuthMode } = {}) {
   const [mobileKeyboard, setMobileKeyboard] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const shouldFollowRef = useRef(true);
+  const touchStartScrollTopRef = useRef(0);
 
   useEffect(() => {
     if (!user) { setChatList([]); return; }
@@ -46,19 +48,21 @@ export function Home({ initialAuthMode }: { initialAuthMode?: AuthMode } = {}) {
     });
   }, [user]);
   useEffect(() => { setAuthMode(initialAuthMode ?? modeFromPath(location.pathname)); }, [initialAuthMode, location.pathname]);
-  useEffect(() => { scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: "smooth" }); }, [messages, busy]);
+  useEffect(() => {
+    const element = scrollRef.current;
+    if (element && shouldFollowRef.current) element.scrollTop = element.scrollHeight;
+  }, [messages, busy]);
   useEffect(() => {
     const vv = window.visualViewport;
     if (!vv) return;
     const update = () => {
-      const keyboard = window.innerHeight - vv.height - vv.offsetTop;
+      const keyboard = window.innerHeight - vv.height;
       setMobileKeyboard(keyboard > 120 && window.innerWidth < 700);
       document.documentElement.style.setProperty("--keyboard-inset", `${Math.max(0, keyboard)}px`);
       document.documentElement.style.setProperty("--visual-height", `${vv.height}px`);
-      document.documentElement.style.setProperty("--visual-top", `${vv.offsetTop}px`);
     };
-    vv.addEventListener("resize", update); vv.addEventListener("scroll", update); update();
-    return () => { vv.removeEventListener("resize", update); vv.removeEventListener("scroll", update); document.documentElement.style.removeProperty("--keyboard-inset"); document.documentElement.style.removeProperty("--visual-height"); document.documentElement.style.removeProperty("--visual-top"); };
+    vv.addEventListener("resize", update); update();
+    return () => { vv.removeEventListener("resize", update); document.documentElement.style.removeProperty("--keyboard-inset"); document.documentElement.style.removeProperty("--visual-height"); };
   }, []);
 
   function newChat() { setMessages([]); setConversationId(undefined); setMessage(""); setDrawer(false); setAuthMode(null); }
@@ -78,6 +82,7 @@ export function Home({ initialAuthMode }: { initialAuthMode?: AuthMode } = {}) {
   async function send(text = input) {
     const prompt = text.trim();
     if (!prompt || busy) return;
+    shouldFollowRef.current = true;
     const next = [...messages, { role: "user" as const, content: prompt }];
     setMessages(next); setInput(""); setBusy(true); setMessage("");
     let answer = "";
@@ -92,9 +97,16 @@ export function Home({ initialAuthMode }: { initialAuthMode?: AuthMode } = {}) {
       setMessages([...next, { role: "assistant", content: answer, ...(final.card ? { card: final.card } : {}) }]);
       if (final.conversationId) setConversationId(final.conversationId);
     } catch (error) {
-      setMessages(next);
+      setMessages(answer ? [...next, { role: "assistant", content: answer }] : next);
       const code = error && typeof error === "object" && "code" in error ? String(error.code) : "";
-      setMessage(code.includes("resource-exhausted") ? "That’s a lot of questions for now. Please try again later." : "Razzberry’s guide is temporarily unavailable. Your question is still here—please try again.");
+      const detail = error && typeof error === "object" && "message" in error ? String(error.message) : "";
+      setMessage(code.includes("resource-exhausted")
+        ? "That’s a lot of questions for now. Please try again later."
+        : code.includes("unauthenticated") || code.includes("permission-denied")
+          ? "The chat couldn’t verify this request. Refresh the page and try again."
+          : detail.toLowerCase().includes("could not complete")
+            ? "The AI service returned no answer. Your question is still here—please try again."
+            : "Razzberry’s guide is temporarily unavailable. Your question is still here—please try again.");
     } finally { setBusy(false); }
   }
   async function submitAuth(event: FormEvent) {
@@ -140,7 +152,11 @@ export function Home({ initialAuthMode }: { initialAuthMode?: AuthMode } = {}) {
     {sidebar}{drawer && <button className="drawer-scrim" aria-label="Close history" onClick={() => setDrawer(false)} />}
     <section className="chat-main">
       <header className="chat-topbar"><button className="icon-button mobile-history" aria-label="Open history" onClick={() => setDrawer(true)}><Menu size={19} /></button><Brand compact /><div className="chat-top-actions"><span className="guide-label"><i /> RAZZBERRY GUIDE</span>{user ? <span className="signed-in-label">{user.email}</span> : <button onClick={() => setAuthMode("signin")}>Sign in</button>}</div></header>
-      <div className={`conversation-scroll ${showWelcome ? "welcome-scroll" : ""}`} ref={scrollRef}>
+      <div className={`conversation-scroll ${showWelcome ? "welcome-scroll" : ""}`} ref={scrollRef}
+        onScroll={(event) => { const el = event.currentTarget; if (el.scrollHeight - el.clientHeight - el.scrollTop < 100) shouldFollowRef.current = true; }}
+        onTouchStart={(event) => { touchStartScrollTopRef.current = event.currentTarget.scrollTop; }}
+        onTouchEnd={(event) => { const el = event.currentTarget; if (touchStartScrollTopRef.current - el.scrollTop > 8) shouldFollowRef.current = false; else if (el.scrollHeight - el.clientHeight - el.scrollTop < 100) shouldFollowRef.current = true; }}
+        onWheel={(event) => { if (event.deltaY < 0) shouldFollowRef.current = false; }}>
         {showWelcome ? <div className="welcome-content"><div className="welcome-symbol"><span>R</span><i /><i /><i /></div><span className="eyebrow"><span className="live-dot" /> A CLEARER WAY TO TALK ABOUT CREATIVE RIGHTS</span><h1>What would you like<br />to <em>understand?</em></h1><p>I’m Razzberry’s guide. Ask about the idea, the problem it explores, or what might come next.</p><div className="suggestion-grid">{suggestions.map((suggestion) => <button key={suggestion} onClick={() => void send(suggestion)}><span>{suggestion}</span><ArrowDown size={15} /></button>)}</div>{authMode && !user && <div className="inline-auth-card route-auth-card"><div className="inline-auth-copy"><strong>{title}</strong><span>{authMode === "reset" ? "Enter your email and we’ll send a reset link." : "Use your email to continue to Razzberry."}</span></div><form className="inline-auth-form" onSubmit={(event) => void submitAuth(event)}><label htmlFor="chat-email">Email</label><input id="chat-email" type="email" autoComplete="email" required placeholder="you@example.com" value={email} onChange={(event) => setEmail(event.target.value)} />{authMode !== "reset" && <><label htmlFor="chat-password">Password</label><input id="chat-password" type="password" autoComplete={authMode === "signup" ? "new-password" : "current-password"} required minLength={authMode === "signup" ? 8 : undefined} placeholder={authMode === "signup" ? "At least 8 characters" : "Your password"} value={password} onChange={(event) => setPassword(event.target.value)} /></>}<button className="button" disabled={busy}>{authMode === "signup" ? "Create account" : authMode === "reset" ? "Send reset link" : "Sign in"}</button><div className="inline-auth-switch"><button type="button" onClick={() => setAuthMode("signin")}>Sign in</button><button type="button" onClick={() => setAuthMode("signup")}>Sign up</button><button type="button" onClick={() => setAuthMode("reset")}>Forgot password?</button></div></form></div>}</div> : <div className="message-list">{messages.map((item, index) => <article className={`chat-message ${item.role}`} key={`${index}-${item.role}`}><div className="message-avatar">{item.role === "assistant" ? <span>R</span> : user?.email?.[0]?.toUpperCase() || "Y"}</div><div className="message-body"><div className="message-author">{item.role === "assistant" ? "Razzberry" : "You"}</div><div className="message-content">{item.content}</div></div></article>)}
           {!user && messages.some((item) => item.role === "assistant") && <div className="inline-auth-card"><div className="auth-card-icon"><CircleHelp size={17} /></div><div className="inline-auth-copy"><strong>Keep this conversation</strong><span>Create a free account to save your chats and pick up where you left off.</span></div>{authMode ? <form className="inline-auth-form" onSubmit={(event) => void submitAuth(event)}><label htmlFor="chat-email">Email</label><input id="chat-email" type="email" autoComplete="email" required placeholder="you@example.com" value={email} onChange={(event) => setEmail(event.target.value)} />{authMode !== "reset" && <><label htmlFor="chat-password">Password</label><input id="chat-password" type="password" autoComplete={authMode === "signup" ? "new-password" : "current-password"} required minLength={authMode === "signup" ? 8 : undefined} placeholder={authMode === "signup" ? "At least 8 characters" : "Your password"} value={password} onChange={(event) => setPassword(event.target.value)} /></>}<button className="button" disabled={busy}>{authMode === "signup" ? "Create account" : authMode === "reset" ? "Send reset link" : "Sign in"}</button><div className="inline-auth-switch">{authMode !== "signin" && <button type="button" onClick={() => setAuthMode("signin")}>Sign in</button>}{authMode !== "signup" && <button type="button" onClick={() => setAuthMode("signup")}>Sign up</button>}{authMode !== "reset" && <button type="button" onClick={() => setAuthMode("reset")}>Forgot password?</button>}</div></form> : <><label className="inline-email-label" htmlFor="inline-email">Your email</label><input id="inline-email" className="inline-email" type="email" placeholder="you@example.com" value={email} onChange={(event) => setEmail(event.target.value)} /><div className="inline-auth-actions"><button onClick={() => setAuthMode("signin")}>Sign in</button><button className="button" onClick={() => setAuthMode("signup")}>Sign up</button></div></>}</div>}
         </div>}

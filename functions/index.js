@@ -75,7 +75,7 @@ async function rateLimit(request) {
   });
 }
 
-async function openAiReply(history, key, onDelta) {
+export async function openAiReply(history, key, onDelta = () => {}) {
   const response = await fetch("https://api.openai.com/v1/responses", {
     method: "POST",
     headers: { Authorization: `Bearer ${key}`, "Content-Type": "application/json" },
@@ -83,34 +83,55 @@ async function openAiReply(history, key, onDelta) {
     signal: AbortSignal.timeout(90_000),
   });
   if (!response.ok || !response.body) {
-    console.error("OpenAI Responses API failed", { status: response.status });
+    let upstream = {};
+    try { upstream = await response.json(); } catch { /* Keep diagnostics safe if the API body is not JSON. */ }
+    console.error("OpenAI Responses API failed", { status: response.status, type: upstream.error?.type, code: upstream.error?.code });
     throw new HttpsError("unavailable", "Razzberry's guide is temporarily unavailable.");
   }
   const reader = response.body.getReader();
   const decoder = new TextDecoder();
   let buffer = "";
   let answer = "";
+  let lastEventType = "unknown";
+  let completionStatus = "unknown";
+  const consume = (event) => {
+    const data = event.split("\n").filter((line) => line.startsWith("data:")).map((line) => line.slice(5).trimStart()).join("\n");
+    if (!data || data === "[DONE]") return;
+    let parsed;
+    try { parsed = JSON.parse(data); } catch { return; }
+    lastEventType = typeof parsed.type === "string" ? parsed.type : lastEventType;
+    if (parsed.type === "response.output_text.delta" && typeof parsed.delta === "string") {
+      answer += parsed.delta;
+      onDelta(parsed.delta);
+    }
+    if (parsed.type === "response.completed") {
+      const result = parsed.response;
+      completionStatus = result?.status || "completed";
+      if (!answer.trim()) {
+        const outputText = result?.output_text || result?.output?.flatMap((item) => item.content || []).filter((part) => part.type === "output_text").map((part) => part.text).join("") || "";
+        if (outputText) { answer = outputText; onDelta(outputText); }
+      }
+    }
+    if (parsed.type === "response.failed" || parsed.type === "error") {
+      console.error("OpenAI Responses stream reported an error", { eventType: parsed.type, code: parsed.error?.code, status: parsed.response?.status });
+      throw new HttpsError("unavailable", "Razzberry's guide is temporarily unavailable.");
+    }
+  };
   try {
     while (true) {
       const { value, done } = await reader.read();
-      if (done) break;
-      buffer += decoder.decode(value, { stream: true });
+      buffer += done ? decoder.decode() : decoder.decode(value, { stream: true });
+      buffer = buffer.replace(/\r\n/g, "\n").replace(/\r/g, "\n");
       const events = buffer.split("\n\n");
       buffer = events.pop() || "";
-      for (const event of events) {
-        const data = event.split("\n").find((line) => line.startsWith("data: "))?.slice(6);
-        if (!data || data === "[DONE]") continue;
-        let parsed;
-        try { parsed = JSON.parse(data); } catch { continue; }
-        if (parsed.type === "response.output_text.delta" && typeof parsed.delta === "string") {
-          answer += parsed.delta;
-          onDelta(parsed.delta);
-        }
-        if (parsed.type === "response.failed" || parsed.type === "error") throw new HttpsError("unavailable", "Razzberry's guide is temporarily unavailable.");
-      }
+      for (const event of events) consume(event);
+      if (done) { if (buffer.trim()) consume(buffer); break; }
     }
   } finally { reader.releaseLock(); }
-  if (!answer.trim()) throw new HttpsError("unavailable", "Razzberry could not complete that reply. Please try again.");
+  if (!answer.trim()) {
+    console.error("OpenAI Responses stream completed without text", { lastEventType, completionStatus });
+    throw new HttpsError("unavailable", "Razzberry could not complete that reply. Please try again.");
+  }
   return answer.trim().slice(0, 2500);
 }
 
