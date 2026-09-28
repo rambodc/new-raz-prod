@@ -79,7 +79,7 @@ export async function openAiReply(history, key, onDelta = () => {}) {
   const response = await fetch("https://api.openai.com/v1/responses", {
     method: "POST",
     headers: { Authorization: `Bearer ${key}`, "Content-Type": "application/json" },
-    body: JSON.stringify({ model: "gpt-5-mini", instructions: PROMPT, input: history.map(({ role, content }) => ({ role, content })), max_output_tokens: 300, stream: true }),
+    body: JSON.stringify({ model: "gpt-5-mini", instructions: PROMPT, input: history.map(({ role, content }) => ({ role, content })), reasoning: { effort: "low" }, max_output_tokens: 1000, stream: true }),
     signal: AbortSignal.timeout(90_000),
   });
   if (!response.ok || !response.body) {

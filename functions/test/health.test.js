@@ -28,15 +28,21 @@ test("unrelated prompts are left for the product guide", () => {
 test("OpenAI text events are parsed when the stream uses CRLF line endings", async () => {
   const originalFetch = globalThis.fetch;
   const deltas = [];
-  globalThis.fetch = async () => new Response([
+  let requestBody;
+  globalThis.fetch = async (_url, options) => {
+    requestBody = JSON.parse(options.body);
+    return new Response([
     "data: {\"type\":\"response.output_text.delta\",\"delta\":\"A clear\"}\r\n\r\n",
     "data: {\"type\":\"response.output_text.delta\",\"delta\":\" answer.\"}\r\n\r\n",
     "data: {\"type\":\"response.completed\",\"response\":{\"status\":\"completed\"}}",
-  ].join(""), { headers: { "Content-Type": "text/event-stream" } });
+    ].join(""), { headers: { "Content-Type": "text/event-stream" } });
+  };
   try {
     const result = await openAiReply([{ role: "user", content: "What is this?" }], "test-key", (delta) => deltas.push(delta));
     assert.equal(result, "A clear answer.");
     assert.deepEqual(deltas, ["A clear", " answer."]);
+    assert.equal(requestBody.max_output_tokens, 1000);
+    assert.deepEqual(requestBody.reasoning, { effort: "low" });
   } finally { globalThis.fetch = originalFetch; }
 });
 
