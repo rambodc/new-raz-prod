@@ -56,13 +56,23 @@ export function Home({ initialAuthMode }: { initialAuthMode?: AuthMode } = {}) {
     const vv = window.visualViewport;
     if (!vv) return;
     const update = () => {
-      const keyboard = window.innerHeight - vv.height;
-      setMobileKeyboard(keyboard > 120 && window.innerWidth < 700);
-      document.documentElement.style.setProperty("--keyboard-inset", `${Math.max(0, keyboard)}px`);
-      document.documentElement.style.setProperty("--visual-height", `${vv.height}px`);
+      // Keep the app's layout viewport fixed. Only offset the composer by the
+      // portion of the layout viewport hidden behind the on-screen keyboard.
+      const keyboard = Math.max(0, window.innerHeight - vv.height - vv.offsetTop);
+      const inset = window.innerWidth < 700 && keyboard > 120 ? keyboard : 0;
+      setMobileKeyboard(inset > 0);
+      document.documentElement.style.setProperty("--keyboard-inset", `${inset}px`);
     };
-    vv.addEventListener("resize", update); update();
-    return () => { vv.removeEventListener("resize", update); document.documentElement.style.removeProperty("--keyboard-inset"); document.documentElement.style.removeProperty("--visual-height"); };
+    vv.addEventListener("resize", update);
+    vv.addEventListener("scroll", update);
+    window.addEventListener("resize", update);
+    update();
+    return () => {
+      vv.removeEventListener("resize", update);
+      vv.removeEventListener("scroll", update);
+      window.removeEventListener("resize", update);
+      document.documentElement.style.removeProperty("--keyboard-inset");
+    };
   }, []);
 
   function newChat() { setMessages([]); setConversationId(undefined); setMessage(""); setDrawer(false); setAuthMode(null); }
