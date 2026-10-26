@@ -1,18 +1,30 @@
 name: Production — Firebase Functions
+
+# Deploys only Cloud Functions. Triggered by functions/** (and the shared firebase.json).
 on:
   push:
     branches: [production]
-    paths: ["functions/**", "firebase.json", ".firebaserc", ".github/workflows/functions-merge.yml"]
+    paths:
+      - "functions/**"
+      - "firebase.json"
+      - ".github/workflows/functions-merge.yml"
   workflow_dispatch:
+
 permissions:
   contents: read
   id-token: write
+
 concurrency:
   group: functions-production
   cancel-in-progress: false
+
+env:
+  FIREBASE_TOOLS_VERSION: 15.22.1
+
 jobs:
   deploy:
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     environment: Prod
     steps:
       - uses: actions/checkout@v4
@@ -21,7 +33,7 @@ jobs:
           node-version: 22
           cache: npm
           cache-dependency-path: functions/package-lock.json
-      - name: Validate deployment identity
+      - name: Validate deployment settings
         run: |
           test -n "${{ vars.GCP_WIF_PROVIDER }}" || { echo "Missing Prod variable GCP_WIF_PROVIDER"; exit 1; }
           test -n "${{ vars.GCP_SERVICE_ACCOUNT_EMAIL }}" || { echo "Missing Prod variable GCP_SERVICE_ACCOUNT_EMAIL"; exit 1; }
@@ -29,9 +41,13 @@ jobs:
         with:
           workload_identity_provider: ${{ vars.GCP_WIF_PROVIDER }}
           service_account: ${{ vars.GCP_SERVICE_ACCOUNT_EMAIL }}
-      - name: Validate OpenAI secret exists
-        run: gcloud secrets versions describe latest --secret=OPENAI_API_KEY2 --project=new-raz-prod --format='value(state)' | grep -qx ENABLED || { echo "Add an enabled OPENAI_API_KEY2 version to Secret Manager before deploying chat functions"; exit 1; }
-      - run: npm ci --prefix functions
+      - run: npm ci --prefix functions --prefer-offline --no-audit --no-fund
       - run: npm run lint --prefix functions && npm test --prefix functions
-      - run: npm install --global firebase-tools@15.22.1
-      - run: firebase deploy --only functions --project new-raz-prod --non-interactive --message "CI functions deploy"
+      - name: Cache Firebase CLI
+        uses: actions/cache@v4
+        with:
+          path: ~/.npm/_npx
+          key: firebase-tools-${{ env.FIREBASE_TOOLS_VERSION }}-${{ runner.os }}
+      # --force lets a non-interactive deploy delete functions that were removed from the source
+      # (the retired chat functions) instead of failing on the confirmation prompt.
+      - run: npx --yes firebase-tools@${{ env.FIREBASE_TOOLS_VERSION }} deploy --only functions --force --project new-raz-prod --non-interactive --message "CI functions deploy"

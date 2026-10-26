@@ -1,18 +1,30 @@
 import { lazy, Suspense } from "react";
 import { Navigate, Route, Routes } from "react-router-dom";
+import { GuestOnly, RequireAuth } from "./auth/guards";
+import Home from "./pages/Home";
 
-const Home = lazy(() => import("./pages/Home").then((module) => ({ default: module.Home })));
+// Auth pages load on demand so the home page stays small.
+const SignIn = lazy(() => import("./pages/SignIn"));
+const SignUp = lazy(() => import("./pages/SignUp"));
+const ForgotPassword = lazy(() => import("./pages/ForgotPassword"));
+const Welcome = lazy(() => import("./pages/Welcome"));
+const NotFound = lazy(() => import("./pages/NotFound"));
 
-export default function App() {
+export function AppRoutes() {
   return (
-    <Suspense fallback={<main className="route-loading">Opening Razzberry…</main>}>
+    <Suspense fallback={<div className="splash" aria-busy="true" />}>
       <Routes>
         <Route path="/" element={<Home />} />
-        <Route path="/signup" element={<Home initialAuthMode="signup" />} />
-        <Route path="/signin" element={<Home initialAuthMode="signin" />} />
-        <Route path="/forgot-password" element={<Home initialAuthMode="reset" />} />
-        <Route path="/dashboard" element={<Navigate to="/" replace />} />
-        <Route path="*" element={<Navigate to="/" replace />} />
+        <Route element={<GuestOnly />}>
+          <Route path="/signin" element={<SignIn />} />
+          <Route path="/signup" element={<SignUp />} />
+          <Route path="/forgot-password" element={<ForgotPassword />} />
+        </Route>
+        <Route element={<RequireAuth />}>
+          <Route path="/welcome" element={<Welcome />} />
+        </Route>
+        <Route path="/dashboard" element={<Navigate to="/welcome" replace />} />
+        <Route path="*" element={<NotFound />} />
       </Routes>
     </Suspense>
   );
