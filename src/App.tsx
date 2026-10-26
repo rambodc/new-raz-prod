@@ -15,11 +15,12 @@ const NotFound = lazy(() => import("./pages/NotFound"));
 const LabLayout = lazy(() => import("./lab/LabLayout"));
 const LabHub = lazy(() => import("./lab/pages/Hub"));
 const ShowPass = lazy(() => import("./lab/pages/ShowPass"));
-const LiveShow = lazy(() => import("./lab/pages/LiveShow"));
 const Passport = lazy(() => import("./lab/pages/Passport"));
-const Rewards = lazy(() => import("./lab/pages/Rewards"));
+const RepPhone = lazy(() => import("./lab/pages/RepPhone"));
 const Discover = lazy(() => import("./lab/pages/Discover"));
 const VerifiedFans = lazy(() => import("./lab/pages/VerifiedFans"));
+// The venue screen is full-viewport and sits outside the lab shell, so it can cover the whole display.
+const VenueScreen = lazy(() => import("./lab/pages/VenueScreen"));
 
 export function AppRoutes() {
   return (
@@ -36,12 +37,13 @@ export function AppRoutes() {
           <Route path="/app" element={<LabLayout />}>
             <Route index element={<LabHub />} />
             <Route path="pass" element={<ShowPass />} />
-            <Route path="live" element={<LiveShow />} />
             <Route path="passport" element={<Passport />} />
-            <Route path="rewards" element={<Rewards />} />
+            <Route path="rep" element={<RepPhone />} />
             <Route path="discover" element={<Discover />} />
             <Route path="artist" element={<VerifiedFans />} />
           </Route>
+          <Route path="/app/live" element={<VenueScreen />} />
+          <Route path="/app/rewards" element={<Navigate to="/app/rep" replace />} />
         </Route>
         <Route path="/dashboard" element={<Navigate to="/welcome" replace />} />
         <Route path="*" element={<NotFound />} />

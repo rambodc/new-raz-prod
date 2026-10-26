@@ -22,21 +22,6 @@ export function formatDay(iso: string, opts: Intl.DateTimeFormatOptions = { week
 
 export const PASS = { title: "Low Frequency", venue: "Foundry 47", date: "2026-11-14", hue: 330, hue2: 275 };
 
-export const LIVE = {
-  scenes: [
-    { name: "Static Bloom", hue: 330, hue2: 275 },
-    { name: "Cold Fire", hue: 200, hue2: 320 },
-    { name: "Signal Rain", hue: 160, hue2: 260 },
-    { name: "Red Shift", hue: 12, hue2: 335 },
-  ],
-  dropEverySec: 36,
-  question: "What next?",
-  options: [
-    { id: "p1", label: "Faster", votes: 164 },
-    { id: "p2", label: "Smoother", votes: 201 },
-  ],
-};
-
 export const PASSPORT = {
   stamps: [
     { id: "t1", show: "Low Frequency", date: "2026-10-17", hue: 330 },
@@ -50,8 +35,6 @@ export const PASSPORT = {
     { id: "t9", show: "Opening Night", date: "2026-06-27", hue: 320 },
   ],
 };
-
-export const REWARDS = { streak: 5, need: 6, reward: "priority entry" };
 
 export const ARTIST = {
   verified: 2184,

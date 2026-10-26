@@ -42,16 +42,6 @@ export function codeState(now: number) {
   return { windowIndex, code: presenceCode(windowIndex), elapsedMs: elapsed, secondsLeft: Math.ceil((CODE_WINDOW_MS - elapsed) / 1000) };
 }
 
-export function formatClock(totalSeconds: number): string {
-  const s = Math.max(0, Math.floor(totalSeconds));
-  const h = Math.floor(s / 3600);
-  const m = Math.floor((s % 3600) / 60);
-  const r = s % 60;
-  const mm = String(m).padStart(2, "0");
-  const ss = String(r).padStart(2, "0");
-  return h > 0 ? `${h}:${mm}:${ss}` : `${mm}:${ss}`;
-}
-
 /** Animate a number up to `value` once (instant under reduced motion). */
 export function useCountUp(value: number, duration = 1400, enabled = true): number {
   const reduced = usePrefersReducedMotion();
