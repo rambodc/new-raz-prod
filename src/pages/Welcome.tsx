@@ -51,9 +51,8 @@ export default function Welcome() {
         <p className="lede">Your Razzberry account is ready. We're building the creative rights tools now, and you'll find them right here as they arrive.</p>
         <Link to="/app" className="lab-cta glass" onPointerMove={spotlight}>
           <span className="lab-cta-text">
-            <span className="badge">New · Design lab</span>
-            <strong>Explore six new screens</strong>
-            <span>Show pass, live show, passport, rewards, discover and the artist dashboard, in two visual styles.</span>
+            <strong>Take a look around</strong>
+            <span>Six simple screens.</span>
           </span>
           <span className="lab-cta-go" aria-hidden="true">
             <ArrowIcon />

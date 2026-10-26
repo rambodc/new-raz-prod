@@ -1,4 +1,4 @@
-import { act, cleanup, fireEvent, render, screen, within } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { AuthUser } from "../auth/service";
@@ -38,6 +38,7 @@ function renderAt(path: string) {
 }
 
 const signedIn = { uid: "u1", displayName: "Ada Lovelace", email: "ada@example.com" };
+const PATHS = ["/app", "/app/pass", "/app/live", "/app/passport", "/app/rewards", "/app/discover", "/app/artist"];
 
 beforeEach(() => {
   state.user = signedIn;
@@ -47,7 +48,7 @@ beforeEach(() => {
 afterEach(cleanup);
 
 describe("design lab access", () => {
-  it.each(["/app", "/app/pass", "/app/live", "/app/passport", "/app/rewards", "/app/discover", "/app/artist"])("sends signed-out visitors from %s to sign in", async (path) => {
+  it.each(PATHS)("sends signed-out visitors from %s to sign in", async (path) => {
     state.user = null;
     renderAt(path);
     expect(await screen.findByRole("heading", { name: "Welcome back" })).toBeTruthy();
@@ -55,44 +56,53 @@ describe("design lab access", () => {
 
   it("links to the lab from the welcome page", async () => {
     renderAt("/welcome");
-    const link = await screen.findByRole("link", { name: /explore six new screens/i });
+    const link = await screen.findByRole("link", { name: /take a look around/i });
     expect(link.getAttribute("href")).toBe("/app");
   });
 });
 
 describe("design lab pages render", () => {
   const pages: [string, RegExp][] = [
-    ["/app", /six ways razzberry/i],
+    ["/app", /pick a screen/i],
     ["/app/pass", /your pass/i],
-    ["/app/live", /nightshift/i],
-    ["/app/passport", /where you/i],
-    ["/app/rewards", /keep the/i],
-    ["/app/discover", /find your/i],
-    ["/app/artist", /fans who were/i],
+    ["/app/live", /live now/i],
+    ["/app/passport", /your passport/i],
+    ["/app/rewards", /your streak/i],
+    ["/app/discover", /coming up/i],
+    ["/app/artist", /your fans/i],
   ];
 
-  it.each(pages)("%s renders its heading and the demo-data footer without errors", async (path, heading) => {
+  it.each(pages)("%s renders its heading and the Demo marker without errors", async (path, heading) => {
     const error = vi.spyOn(console, "error").mockImplementation(() => {});
     renderAt(path);
     expect(await screen.findByRole("heading", { level: 1, name: heading })).toBeTruthy();
-    expect(screen.getByText(/demo data — design preview/i)).toBeTruthy();
+    expect(screen.getByText("Demo")).toBeTruthy();
     expect(error).not.toHaveBeenCalled();
     error.mockRestore();
   });
 
-  it("shows a rotating presence code and a checked-in state on the show pass", async () => {
+  it("lists the six pages on the hub, grouped Fan and Artist", async () => {
+    renderAt("/app");
+    const hub = await screen.findByRole("heading", { level: 2, name: "Fan" });
+    expect(hub).toBeTruthy();
+    expect(screen.getByRole("heading", { level: 2, name: "Artist" })).toBeTruthy();
+    const links = screen.getAllByRole("link").filter((l) => l.classList.contains("hub-item"));
+    expect(links.map((l) => l.getAttribute("href"))).toEqual(PATHS.slice(1));
+  });
+
+  it("shows a pass code and a checked-in state", async () => {
     renderAt("/app/pass");
-    expect(await screen.findByLabelText(/presence code/i)).toBeTruthy();
+    expect(await screen.findByLabelText(/pass code/i)).toBeTruthy();
     expect(screen.queryByText("Checked in")).toBeNull();
-    fireEvent.click(screen.getByRole("button", { name: /simulate rep confirmation/i }));
+    fireEvent.click(screen.getByRole("button", { name: "Check in" }));
     expect(screen.getByText("Checked in")).toBeTruthy();
-    fireEvent.click(screen.getByRole("button", { name: /reset demo/i }));
+    fireEvent.click(screen.getByRole("button", { name: "Start over" }));
     expect(screen.queryByText("Checked in")).toBeNull();
   });
 
-  it("lets a fan vote locally on the live show", async () => {
+  it("lets a fan vote locally on the live page", async () => {
     renderAt("/app/live");
-    const option = await screen.findByRole("button", { name: /rolling and hypnotic/i });
+    const option = await screen.findByRole("button", { name: /smoother/i });
     expect(option.getAttribute("aria-pressed")).toBe("false");
     fireEvent.click(option);
     expect(option.getAttribute("aria-pressed")).toBe("true");
@@ -107,35 +117,26 @@ describe("design lab pages render", () => {
   });
 });
 
-describe("design lab styles and roles", () => {
-  it("switches between Aurora and Cinematic, persists the choice, and locks Cinematic to dark", async () => {
-    renderAt("/app");
-    const aurora = await screen.findByRole("radio", { name: "Aurora", checked: true });
-    expect(aurora).toBeTruthy();
-    const root = document.querySelector(".lab")!;
-    expect(root.classList.contains("lab--aurora")).toBe(true);
-
-    fireEvent.click(screen.getByRole("radio", { name: "Cinematic" }));
-    expect(root.classList.contains("lab--cinematic")).toBe(true);
-    expect(localStorage.getItem("razzberry-lab-style")).toBe("cinematic");
-    expect(root.classList.contains("is-dark")).toBe(true);
-    const toggle = screen.getByRole("button", { name: /cinematic is always dark/i }) as HTMLButtonElement;
-    expect(toggle.disabled).toBe(true);
-  });
-
-  it("keeps the site light/dark switch working for Aurora", async () => {
+describe("light and dark", () => {
+  it("always offers the dark/light switch and keeps the lab in step with it", async () => {
     renderAt("/app");
     const toggle = await screen.findByRole("button", { name: /switch to light mode/i });
+    const root = document.querySelector(".lab")!;
+    expect(root.classList.contains("is-dark")).toBe(true);
     fireEvent.click(toggle);
     expect(document.documentElement.dataset.theme).toBe("light");
-    expect(document.querySelector(".lab")!.classList.contains("is-light")).toBe(true);
+    expect(root.classList.contains("is-light")).toBe(true);
+    expect(screen.getByRole("button", { name: /switch to dark mode/i })).toBeTruthy();
   });
 
-  it("lists the artist page under Artist view and the fan pages under Fan view", async () => {
-    renderAt("/app/artist");
-    const nav = await screen.findByRole("navigation", { name: /design lab pages/i });
-    expect(within(nav).getByRole("link", { name: "Verified fans" })).toBeTruthy();
-    expect(within(nav).queryByRole("link", { name: "Show pass" })).toBeNull();
+  it("ignores and clears the look and view choices that earlier previews stored", async () => {
+    localStorage.setItem("razzberry-lab-style", "old-look");
+    localStorage.setItem("razzberry-lab-role", "artist");
+    renderAt("/app");
+    await screen.findByRole("heading", { level: 1, name: /pick a screen/i });
+    expect(document.querySelector(".lab")!.classList.contains("is-dark")).toBe(true);
+    expect(localStorage.getItem("razzberry-lab-style")).toBeNull();
+    expect(localStorage.getItem("razzberry-lab-role")).toBeNull();
   });
 });
 
@@ -156,20 +157,5 @@ describe("presence code", () => {
   it("formats clocks", () => {
     expect(formatClock(75)).toBe("01:15");
     expect(formatClock(4300)).toBe("1:11:40");
-  });
-});
-
-describe("timers", () => {
-  it("ticks the live show clock without crashing", async () => {
-    vi.useFakeTimers();
-    try {
-      renderAt("/app/live");
-      await act(async () => {
-        await vi.advanceTimersByTimeAsync(7000);
-      });
-      expect(screen.getAllByText(/verified in the room/i).length).toBeGreaterThan(0);
-    } finally {
-      vi.useRealTimers();
-    }
   });
 });

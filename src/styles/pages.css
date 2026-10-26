@@ -478,7 +478,6 @@
 .lab-cta-text > span:last-child {
   font-size: 0.9375rem;
   color: var(--muted);
-  line-height: 1.45;
 }
 
 .lab-cta-go {
