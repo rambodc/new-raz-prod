@@ -115,3 +115,85 @@ jobs:
       - name: Test Firestore and Storage rules
         if: steps.changes.outputs.run == 'true'
         run: npx --yes firebase-tools@${{ env.FIREBASE_TOOLS_VERSION }} emulators:exec --only firestore,storage --project demo-razzberry-rules "node --test tests/rules.test.mjs"
+
+  # Not a required check. Publishes a temporary Firebase Hosting preview channel (pr-<number>, expires
+  # in 7 days) for frontend changes and keeps one comment on the PR with the link. It never touches the
+  # live channel, and it is skipped for pull requests from forks (they get no deploy credentials).
+  hosting-preview:
+    if: github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    environment: Prod
+    permissions:
+      contents: read
+      id-token: write
+      pull-requests: write
+    steps:
+      - name: Did the frontend change?
+        id: changes
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PATTERN: '^(src/|public/|index\.html$|package\.json$|package-lock\.json$|vite\.config\.ts$|tsconfig[^/]*\.json$|firebase\.json$|\.github/workflows/pull-request\.yml$)'
+        run: |
+          files=$(gh api --paginate "repos/${{ github.repository }}/pulls/${{ github.event.pull_request.number }}/files" --jq '.[].filename')
+          if echo "$files" | grep -Eq "$PATTERN"; then echo "run=true" >> "$GITHUB_OUTPUT"; else echo "run=false" >> "$GITHUB_OUTPUT"; echo "No frontend changes, no preview needed."; fi
+      - uses: actions/checkout@v4
+        if: steps.changes.outputs.run == 'true'
+      - uses: actions/setup-node@v4
+        if: steps.changes.outputs.run == 'true'
+        with:
+          node-version: 22
+          cache: npm
+      - name: Configure Firebase web app
+        if: steps.changes.outputs.run == 'true'
+        run: |
+          echo "VITE_FIREBASE_API_KEY=${{ vars.FIREBASE_API_KEY }}" >> "$GITHUB_ENV"
+          echo "VITE_FIREBASE_AUTH_DOMAIN=${{ vars.FIREBASE_AUTH_DOMAIN }}" >> "$GITHUB_ENV"
+          echo "VITE_FIREBASE_PROJECT_ID=new-raz-prod" >> "$GITHUB_ENV"
+          echo "VITE_FIREBASE_STORAGE_BUCKET=${{ vars.FIREBASE_STORAGE_BUCKET }}" >> "$GITHUB_ENV"
+          echo "VITE_FIREBASE_MESSAGING_SENDER_ID=${{ vars.FIREBASE_MESSAGING_SENDER_ID }}" >> "$GITHUB_ENV"
+          echo "VITE_FIREBASE_APP_ID=${{ vars.FIREBASE_APP_ID }}" >> "$GITHUB_ENV"
+      - uses: google-github-actions/auth@v2
+        if: steps.changes.outputs.run == 'true'
+        with:
+          workload_identity_provider: ${{ vars.GCP_WIF_PROVIDER }}
+          service_account: ${{ vars.GCP_SERVICE_ACCOUNT_EMAIL }}
+      - if: steps.changes.outputs.run == 'true'
+        run: npm ci --prefer-offline --no-audit --no-fund
+      - if: steps.changes.outputs.run == 'true'
+        run: npm run build
+      - name: Cache Firebase CLI
+        if: steps.changes.outputs.run == 'true'
+        uses: actions/cache@v4
+        with:
+          path: ~/.npm/_npx
+          key: firebase-tools-${{ env.FIREBASE_TOOLS_VERSION }}-${{ runner.os }}
+      - name: Deploy preview channel
+        id: deploy
+        if: steps.changes.outputs.run == 'true'
+        run: |
+          npx --yes firebase-tools@${{ env.FIREBASE_TOOLS_VERSION }} hosting:channel:deploy "pr-${{ github.event.pull_request.number }}" \
+            --only hosting --project new-raz-prod --expires 7d --non-interactive --json > preview.json
+          cat preview.json
+          url=$(jq -r '.result | to_entries[0].value.url' preview.json)
+          expires=$(jq -r '.result | to_entries[0].value.expireTime' preview.json)
+          case "$url" in https://new-raz-prod--pr-*.web.app*) ;; *) echo "Unexpected preview URL: $url"; exit 1 ;; esac
+          echo "url=$url" >> "$GITHUB_OUTPUT"
+          echo "expires=$expires" >> "$GITHUB_OUTPUT"
+      - name: Comment the preview link on the pull request
+        if: steps.changes.outputs.run == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PREVIEW_URL: ${{ steps.deploy.outputs.url }}
+          EXPIRES: ${{ steps.deploy.outputs.expires }}
+          PR: ${{ github.event.pull_request.number }}
+          SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          marker='<!-- hosting-preview -->'
+          body=$(printf '%s\n**Preview:** %s\n\nCommit `%s`. Temporary channel `pr-%s`, expires %s. It is separate from the live site.' "$marker" "$PREVIEW_URL" "${SHA:0:7}" "$PR" "$EXPIRES")
+          id=$(gh api --paginate "repos/${{ github.repository }}/issues/$PR/comments" --jq ".[] | select(.body | contains(\"$marker\")) | .id" | head -n1)
+          if [ -n "$id" ]; then
+            gh api -X PATCH "repos/${{ github.repository }}/issues/comments/$id" -f body="$body" > /dev/null
+          else
+            gh api -X POST "repos/${{ github.repository }}/issues/$PR/comments" -f body="$body" > /dev/null
+          fi
