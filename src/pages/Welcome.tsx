@@ -1,8 +1,9 @@
 import { useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
 import { useAuth } from "../auth/AuthProvider";
 import { signOutUser } from "../auth/service";
 import { greetingName } from "../auth/validation";
+import { ArrowIcon } from "../components/Icons";
 import { Ambient, BrandLink, ThemeToggle } from "../components/Layout";
 import { RaspberryMark } from "../components/RaspberryMark";
 import { Spinner } from "../components/Form";
@@ -48,6 +49,16 @@ export default function Welcome() {
           Welcome, <span className="grad">{name}</span>.
         </h1>
         <p className="lede">Your Razzberry account is ready. We're building the creative rights tools now, and you'll find them right here as they arrive.</p>
+        <Link to="/app" className="lab-cta glass" onPointerMove={spotlight}>
+          <span className="lab-cta-text">
+            <span className="badge">New · Design lab</span>
+            <strong>Explore six new screens</strong>
+            <span>Show pass, live show, passport, rewards, discover and the artist dashboard, in two visual styles.</span>
+          </span>
+          <span className="lab-cta-go" aria-hidden="true">
+            <ArrowIcon />
+          </span>
+        </Link>
         <div className="account glass" onPointerMove={spotlight}>
           <div>
             <span className="account-label">Signed in as</span>

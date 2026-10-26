@@ -441,3 +441,58 @@
   border: 1px solid color-mix(in srgb, var(--accent) 30%, transparent);
   border-radius: 999px;
 }
+
+/* Prominent door into the design lab on the welcome page */
+.lab-cta {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 18px;
+  width: min(100%, 460px);
+  margin-top: 8px;
+  padding: 20px 22px;
+  border-radius: 22px;
+  text-align: left;
+  color: var(--text);
+  background-image: linear-gradient(135deg, color-mix(in srgb, var(--accent) 22%, transparent), color-mix(in srgb, var(--violet) 14%, transparent));
+  border: 1px solid color-mix(in srgb, var(--accent) 40%, transparent);
+  box-shadow: 0 20px 60px -28px var(--glow);
+}
+
+.lab-cta:hover {
+  text-decoration: none;
+  border-color: var(--accent-2);
+}
+
+.lab-cta-text {
+  display: grid;
+  gap: 6px;
+  justify-items: start;
+}
+
+.lab-cta-text strong {
+  font-size: 1.25rem;
+  letter-spacing: -0.02em;
+}
+
+.lab-cta-text > span:last-child {
+  font-size: 0.9375rem;
+  color: var(--muted);
+  line-height: 1.45;
+}
+
+.lab-cta-go {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 44px;
+  height: 44px;
+  border-radius: 50%;
+  color: #fff;
+  background: linear-gradient(135deg, var(--btn-from), var(--btn-to));
+  transition: transform 0.3s var(--ease);
+}
+
+.lab-cta:hover .lab-cta-go {
+  transform: translateX(4px);
+}
