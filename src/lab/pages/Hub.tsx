@@ -3,7 +3,7 @@ import { ArrowIcon } from "../../components/Icons";
 import { LAB_PAGES } from "../pages";
 import "../styles/hub.css";
 
-const GROUPS = ["Fan", "Artist"] as const;
+const GROUPS = ["Fan", "Artist", "Show night"] as const;
 
 export default function Hub() {
   return (
