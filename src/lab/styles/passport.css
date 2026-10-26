@@ -1,109 +1,54 @@
-.pp-id {
-  display: grid;
-  gap: 20px;
-  padding: 20px;
-}
-
-.pp-id-main {
+.pp-head {
   display: flex;
-  align-items: center;
-  gap: 16px;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 8px 24px;
+  margin-bottom: 8px;
 }
 
-.pp-avatar {
-  display: grid;
-  place-items: center;
-  width: 62px;
-  height: 62px;
-  flex: none;
-  font-family: var(--lb-display);
-  font-size: 1.7rem;
-  color: var(--lb-ink);
-  border-radius: 50%;
-  background: linear-gradient(135deg, var(--lb-accent), #6d28d9);
-  box-shadow: 0 0 0 4px var(--lb-faint), 0 14px 30px -10px var(--lb-glowc);
+.pp-head .lb-display {
+  margin-bottom: 14px;
 }
 
-.lab--cinematic .pp-avatar {
-  border-radius: 0;
-  color: #0a0708;
-  background: var(--lb-text);
-}
-
-.pp-name {
-  font-family: var(--lb-display);
-  font-weight: var(--lb-display-weight);
-  font-size: 1.6rem;
-  letter-spacing: var(--lb-display-track);
-  line-height: 1.1;
-}
-
-.pp-level {
-  font-family: var(--lb-label-font);
-  font-size: 0.75rem;
-  letter-spacing: var(--lb-label-track);
-  text-transform: uppercase;
-  color: var(--lb-accent-2);
-}
-
-.lab--aurora.is-light .pp-level {
-  color: var(--lb-accent);
-}
-
-.pp-stats {
-  display: grid;
-  grid-template-columns: repeat(2, 1fr);
-  gap: 10px;
-  margin: 0;
-}
-
-.pp-stats > div {
-  display: flex;
-  flex-direction: column-reverse;
-  padding: 12px 14px;
-  background: var(--lb-faint);
-  border-radius: var(--lb-radius-sm);
-}
-
-.pp-stats dd {
-  margin: 0;
-  font-family: var(--lb-display);
-  font-size: 2.2rem;
-  line-height: 1;
-  letter-spacing: var(--lb-display-track);
-}
-
-.pp-stats dt {
-  margin-top: 4px;
-  font-size: 0.8125rem;
+.pp-count {
+  margin-bottom: 20px;
   color: var(--lb-muted);
+  font-size: 1.2rem;
 }
 
-/* Stamps */
+.pp-count strong {
+  margin-right: 6px;
+  font-size: clamp(3rem, 10vw, 4.4rem);
+  font-weight: 700;
+  line-height: 1;
+  letter-spacing: -0.04em;
+  color: var(--lb-text);
+}
+
 .stamps {
   display: grid;
-  gap: 12px;
-  grid-template-columns: 1fr;
+  gap: 14px;
+  grid-template-columns: repeat(3, 1fr);
 }
 
 .stamp {
-  position: relative;
   display: grid;
-  grid-template-columns: 84px 1fr;
-  gap: 16px;
-  align-items: center;
-  padding: 14px 16px;
+  place-items: center;
+  aspect-ratio: 1;
+  padding: 8%;
   background: var(--lb-card);
   border: 1px solid var(--lb-border);
-  border-radius: var(--lb-radius-sm);
+  border-radius: var(--lb-radius);
+  box-shadow: var(--lb-shadow);
   -webkit-backdrop-filter: var(--lb-blur);
   backdrop-filter: var(--lb-blur);
   transition: transform 0.35s var(--ease), border-color 0.3s;
 }
 
 .stamp:hover {
-  transform: translateY(-3px) rotate(-0.4deg);
-  border-color: hsl(var(--hue) 90% 60%);
+  transform: translateY(-4px) rotate(-1deg);
+  border-color: hsl(var(--hue) 90% 62%);
 }
 
 .stamp-ink {
@@ -111,277 +56,50 @@
   display: grid;
   place-content: center;
   justify-items: center;
-  width: 84px;
-  height: 84px;
+  width: 100%;
+  aspect-ratio: 1;
   color: hsl(var(--hue) 90% 66%);
   border: 3px double currentColor;
   border-radius: 50%;
   transform: rotate(var(--tilt));
   background: radial-gradient(circle, hsl(var(--hue) 90% 60% / 0.16), transparent 70%);
-  box-shadow: 0 0 22px -6px hsl(var(--hue) 90% 60% / 0.55);
+  box-shadow: 0 0 26px -6px hsl(var(--hue) 90% 60% / 0.6);
   font-family: var(--lb-mono);
   text-align: center;
-  mix-blend-mode: normal;
 }
 
-.lab--aurora.is-light .stamp-ink {
+.lab.is-light .stamp-ink {
   color: hsl(var(--hue) 80% 42%);
 }
 
 .stamp-ink::before {
   content: "";
   position: absolute;
-  inset: 5px;
+  inset: 6%;
   border: 1px dashed currentColor;
   border-radius: 50%;
   opacity: 0.55;
 }
 
-.stamp-ink span {
+.stamp-ink b {
   font-weight: 800;
-  font-size: 1.25rem;
+  font-size: clamp(1rem, 4.6vw, 1.6rem);
   letter-spacing: 0.08em;
 }
 
 .stamp-ink small {
-  font-size: 0.6875rem;
+  font-size: clamp(0.625rem, 2.4vw, 0.8rem);
   letter-spacing: 0.12em;
   text-transform: uppercase;
 }
 
-.lab--cinematic .stamp-ink {
-  border-radius: 4px;
-  width: 84px;
-  height: 84px;
-}
-
-.lab--cinematic .stamp-ink::before {
-  border-radius: 1px;
-}
-
-.stamp-text {
-  display: grid;
-  gap: 3px;
-  min-width: 0;
-}
-
-.stamp-text strong {
-  font-family: var(--lb-display);
-  font-weight: var(--lb-display-weight);
-  font-size: 1.2rem;
-  letter-spacing: var(--lb-display-track);
-  line-height: 1.15;
-}
-
-.stamp-text span {
-  font-size: 0.875rem;
-  color: var(--lb-muted);
-}
-
-.stamp--next {
-  --hue: 330;
-  border-style: dashed;
-  background: transparent;
-}
-
-.stamp--next .stamp-ink {
-  color: var(--lb-muted);
-  border-style: dashed;
-  background: none;
-  box-shadow: none;
-  transform: none;
-}
-
-/* Badges */
-.badges {
-  display: grid;
-  gap: 12px;
-  grid-template-columns: repeat(2, 1fr);
-}
-
-.badge-card {
-  display: grid;
-  justify-items: center;
-  gap: 4px;
-  padding: 20px 12px 18px;
-  text-align: center;
-}
-
-.badge-card strong {
-  margin-top: 8px;
-  font-size: 0.98rem;
-}
-
-.badge-card > span:not(.badge-progress):not(.sr-only) {
-  font-size: 0.8125rem;
-  color: var(--lb-muted);
-  line-height: 1.35;
-}
-
-.badge-art {
-  position: relative;
-  width: 76px;
-  height: 76px;
-}
-
-.badge-shape {
-  width: 100%;
-  height: 100%;
-  overflow: visible;
-}
-
-.badge-shape polygon,
-.badge-shape circle {
-  fill: none;
-  stroke-width: 3;
-  stroke-linejoin: round;
-}
-
-.earned .badge-shape polygon,
-.earned .badge-shape circle {
-  fill: color-mix(in srgb, var(--lb-accent) 38%, transparent);
-  stroke: var(--lb-accent-2);
-  filter: drop-shadow(0 0 12px var(--lb-glowc));
-}
-
-.earned .badge-shape circle.inner {
-  fill: var(--lb-accent);
-}
-
-.earned:nth-child(3n + 2) .badge-shape polygon,
-.earned:nth-child(3n + 2) .badge-shape circle {
-  fill: color-mix(in srgb, var(--tier-1) 40%, transparent);
-  stroke: var(--tier-1);
-}
-
-.earned:nth-child(3n) .badge-shape polygon,
-.earned:nth-child(3n) .badge-shape circle {
-  fill: color-mix(in srgb, var(--tier-4) 40%, transparent);
-  stroke: var(--tier-4);
-}
-
-.locked .badge-shape polygon,
-.locked .badge-shape circle {
-  fill: var(--lb-faint);
-  stroke: var(--lb-border);
-  stroke-dasharray: 4 5;
-}
-
-.locked {
-  opacity: 0.8;
-}
-
-.badge-lock {
-  position: absolute;
-  inset: 0;
-  margin: auto;
-  width: 26px;
-  height: 26px;
-  fill: none;
-  stroke: var(--lb-muted);
-  stroke-width: 1.8;
-  stroke-linecap: round;
-  stroke-linejoin: round;
-}
-
-.badge-progress {
-  display: block;
-  width: 70%;
-  height: 4px;
-  margin-top: 8px;
-  background: var(--lb-track);
-  border-radius: 4px;
-  overflow: hidden;
-}
-
-.badge-progress i {
-  display: block;
-  height: 100%;
-  background: var(--lb-accent);
-}
-
-/* Timeline */
-.timeline {
-  position: relative;
-  display: grid;
-  gap: 0;
-  padding-left: 4px;
-}
-
-.timeline::before {
-  content: "";
-  position: absolute;
-  left: 78px;
-  top: 8px;
-  bottom: 8px;
-  width: 1px;
-  background: linear-gradient(to bottom, var(--lb-accent), var(--lb-border) 70%, transparent);
-}
-
-.timeline li {
-  position: relative;
-  display: grid;
-  grid-template-columns: 62px 1fr;
-  gap: 32px;
-  padding: 14px 0;
-}
-
-.timeline li::after {
-  content: "";
-  position: absolute;
-  left: 74px;
-  top: 22px;
-  width: 9px;
-  height: 9px;
-  border-radius: 50%;
-  background: var(--lb-bg);
-  border: 2px solid var(--lb-accent);
-  box-shadow: 0 0 12px var(--lb-glowc);
-}
-
-.timeline time {
-  font-family: var(--lb-mono);
-  font-size: 0.8125rem;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-  color: var(--lb-muted);
-  padding-top: 3px;
-}
-
-.timeline strong {
-  display: block;
-}
-
-.timeline li span {
-  font-size: 0.9rem;
-  color: var(--lb-muted);
-}
-
 @media (min-width: 720px) {
-  .pp-id {
-    grid-template-columns: auto 1fr;
-    align-items: center;
-    padding: 26px 30px;
-    gap: 40px;
-  }
-
-  .pp-stats {
-    grid-template-columns: repeat(4, 1fr);
-  }
-
   .stamps {
-    grid-template-columns: repeat(2, 1fr);
-    gap: 16px;
+    grid-template-columns: repeat(5, 1fr);
+    gap: 18px;
   }
 
-  .badges {
-    grid-template-columns: repeat(4, 1fr);
-    gap: 16px;
-  }
-}
-
-@media (min-width: 1020px) {
-  .stamps {
-    grid-template-columns: repeat(3, 1fr);
+  .stamp-ink b {
+    font-size: 1.35rem;
   }
 }

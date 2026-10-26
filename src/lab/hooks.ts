@@ -72,19 +72,13 @@ export function useCountUp(value: number, duration = 1400, enabled = true): numb
   return instant ? value : n;
 }
 
-type DeviceOrientationCtor = typeof DeviceOrientationEvent & { requestPermission?: () => Promise<"granted" | "denied"> };
-
 /**
  * Pointer and device-motion tilt. Writes --rx, --ry (degrees) and --gx, --gy (0-100%, for glare) on the element.
- * Does nothing under prefers-reduced-motion.
+ * Does nothing under prefers-reduced-motion. (iPhones need a permission tap for motion, so there it is pointer-only.)
  */
-export function useTilt<T extends HTMLElement>(max = 12): { ref: RefObject<T | null>; motionState: "unsupported" | "needs-permission" | "on"; enableMotion: () => void } {
+export function useTilt<T extends HTMLElement>(max = 12): RefObject<T | null> {
   const ref = useRef<T>(null);
   const reduced = usePrefersReducedMotion();
-  const [motionState, setMotionState] = useState<"unsupported" | "needs-permission" | "on">(() => {
-    if (typeof window === "undefined" || typeof DeviceOrientationEvent === "undefined" || !("ontouchstart" in window)) return "unsupported";
-    return typeof (DeviceOrientationEvent as DeviceOrientationCtor).requestPermission === "function" ? "needs-permission" : "on";
-  });
 
   const apply = useCallback(
     (nx: number, ny: number) => {
@@ -107,56 +101,19 @@ export function useTilt<T extends HTMLElement>(max = 12): { ref: RefObject<T | n
       apply(((e.clientX - r.left) / r.width) * 2 - 1, ((e.clientY - r.top) / r.height) * 2 - 1);
     };
     const leave = () => apply(0, 0);
-    el.addEventListener("pointermove", move);
-    el.addEventListener("pointerleave", leave);
-    return () => {
-      el.removeEventListener("pointermove", move);
-      el.removeEventListener("pointerleave", leave);
-    };
-  }, [apply, reduced]);
-
-  useEffect(() => {
-    if (reduced || motionState !== "on") return;
-    const on = (e: DeviceOrientationEvent) => {
+    const motion = (e: DeviceOrientationEvent) => {
       if (e.gamma == null || e.beta == null) return;
       apply(Math.max(-1, Math.min(1, e.gamma / 30)), Math.max(-1, Math.min(1, (e.beta - 45) / 30)));
     };
-    window.addEventListener("deviceorientation", on);
-    return () => window.removeEventListener("deviceorientation", on);
-  }, [apply, reduced, motionState]);
+    el.addEventListener("pointermove", move);
+    el.addEventListener("pointerleave", leave);
+    window.addEventListener("deviceorientation", motion);
+    return () => {
+      el.removeEventListener("pointermove", move);
+      el.removeEventListener("pointerleave", leave);
+      window.removeEventListener("deviceorientation", motion);
+    };
+  }, [apply, reduced]);
 
-  const enableMotion = useCallback(() => {
-    const ctor = DeviceOrientationEvent as DeviceOrientationCtor;
-    if (typeof ctor.requestPermission !== "function") return;
-    ctor
-      .requestPermission()
-      .then((r) => setMotionState(r === "granted" ? "on" : "unsupported"))
-      .catch(() => setMotionState("unsupported"));
-  }, []);
-
-  return { ref, motionState, enableMotion };
-}
-
-/** Persisted string choice in localStorage (falls back to memory when storage is blocked). */
-export function useStoredChoice<T extends string>(key: string, allowed: readonly T[], fallback: T): [T, (v: T) => void] {
-  const [value, setValue] = useState<T>(() => {
-    try {
-      const v = localStorage.getItem(key);
-      return allowed.includes(v as T) ? (v as T) : fallback;
-    } catch {
-      return fallback;
-    }
-  });
-  const set = useCallback(
-    (v: T) => {
-      setValue(v);
-      try {
-        localStorage.setItem(key, v);
-      } catch {
-        /* not persisted */
-      }
-    },
-    [key],
-  );
-  return [value, set];
+  return ref;
 }
