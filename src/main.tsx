@@ -1,16 +1,22 @@
-import React from "react";
-import ReactDOM from "react-dom/client";
+import "@fontsource-variable/outfit/wght.css";
+import { StrictMode } from "react";
+import { createRoot } from "react-dom/client";
 import { BrowserRouter } from "react-router-dom";
-import App from "./App";
+import { AppRoutes } from "./App";
 import { AuthProvider } from "./auth/AuthProvider";
-import "./styles.css";
+import { ThemeProvider } from "./components/ThemeProvider";
+import "./styles/base.css";
+import "./styles/components.css";
+import "./styles/pages.css";
 
-ReactDOM.createRoot(document.getElementById("root")!).render(
-  <React.StrictMode>
-    <BrowserRouter>
+createRoot(document.getElementById("root")!).render(
+  <StrictMode>
+    <ThemeProvider>
       <AuthProvider>
-        <App />
+        <BrowserRouter>
+          <AppRoutes />
+        </BrowserRouter>
       </AuthProvider>
-    </BrowserRouter>
-  </React.StrictMode>,
+    </ThemeProvider>
+  </StrictMode>,
 );

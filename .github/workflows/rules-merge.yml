@@ -1,30 +1,40 @@
 name: Production — Firebase Rules
+
+# Deploys only Firestore rules/indexes and Storage rules. Triggered by those files (and tests/).
 on:
   push:
     branches: [production]
-    paths: ["firestore.rules", "storage.rules", "firestore.indexes.json", "tests/rules.test.mjs", "firebase.json", "package.json", "package-lock.json", ".github/workflows/rules-merge.yml"]
+    paths:
+      - "firestore.rules"
+      - "storage.rules"
+      - "firestore.indexes.json"
+      - "firebase.json"
+      - "tests/**"
+      - ".github/workflows/rules-merge.yml"
   workflow_dispatch:
+
 permissions:
   contents: read
   id-token: write
+
 concurrency:
   group: rules-production
   cancel-in-progress: false
+
+env:
+  FIREBASE_TOOLS_VERSION: 15.22.1
+
 jobs:
   deploy:
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     environment: Prod
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
           node-version: 22
-          cache: npm
-      - uses: actions/setup-java@v4
-        with:
-          distribution: temurin
-          java-version: 21
-      - name: Validate deployment identity
+      - name: Validate deployment settings
         run: |
           test -n "${{ vars.GCP_WIF_PROVIDER }}" || { echo "Missing Prod variable GCP_WIF_PROVIDER"; exit 1; }
           test -n "${{ vars.GCP_SERVICE_ACCOUNT_EMAIL }}" || { echo "Missing Prod variable GCP_SERVICE_ACCOUNT_EMAIL"; exit 1; }
@@ -32,7 +42,11 @@ jobs:
         with:
           workload_identity_provider: ${{ vars.GCP_WIF_PROVIDER }}
           service_account: ${{ vars.GCP_SERVICE_ACCOUNT_EMAIL }}
-      - run: npm ci
-      - run: npm install --global firebase-tools@15.22.1
-      - run: npm run test:rules
-      - run: firebase deploy --only firestore:rules,firestore:indexes,storage --project new-raz-prod --non-interactive --message "CI rules deploy"
+      - name: Cache Firebase CLI
+        uses: actions/cache@v4
+        with:
+          path: ~/.npm/_npx
+          key: firebase-tools-${{ env.FIREBASE_TOOLS_VERSION }}-${{ runner.os }}
+      # The rules emulator tests already passed on the pull request (required check), so this
+      # job skips Java, npm install and the emulator and only deploys.
+      - run: npx --yes firebase-tools@${{ env.FIREBASE_TOOLS_VERSION }} deploy --only firestore:rules,firestore:indexes,storage --project new-raz-prod --non-interactive --message "CI rules deploy"

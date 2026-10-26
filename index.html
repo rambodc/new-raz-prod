@@ -1,14 +1,34 @@
 <!doctype html>
-<html lang="en">
+<html lang="en" data-theme="dark">
   <head>
     <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <meta name="theme-color" content="#0b0d0e" />
-    <meta name="description" content="Razzberry is building the system of record for creative rights: what gets created, who owns it, and how value moves." />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+    <meta name="color-scheme" content="dark light" />
+    <meta name="theme-color" content="#07060a" />
+    <meta name="description" content="Razzberry is building the system of record for creative rights: who made it, who owns it and how it earns." />
+    <meta property="og:title" content="Razzberry — Creative rights infrastructure" />
+    <meta property="og:description" content="Give every creative work a permanent identity. The system of record for who made it, who owns it and how it earns." />
+    <meta property="og:type" content="website" />
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
     <title>Razzberry — Creative rights infrastructure</title>
+    <style>
+      html { background: #07060a; }
+      html[data-theme="light"] { background: #fbf6f9; }
+    </style>
+    <script>
+      // Apply the saved theme before first paint (dark unless the visitor chose light).
+      try {
+        var t = localStorage.getItem("razzberry-theme") === "light" ? "light" : "dark";
+        var d = document.documentElement;
+        d.setAttribute("data-theme", t);
+        d.style.colorScheme = t;
+        if (t === "light") document.querySelector('meta[name="theme-color"]').setAttribute("content", "#fbf6f9");
+      } catch (e) {}
+    </script>
   </head>
   <body>
     <div id="root"></div>
+    <noscript>Razzberry needs JavaScript to run.</noscript>
     <script type="module" src="/src/main.tsx"></script>
   </body>
 </html>

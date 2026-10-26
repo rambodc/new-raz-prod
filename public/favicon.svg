@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="96 16 312 378">
+<defs><path id="d" d="M0 -24C6 -14 15 -6 15 3A15 15 0 0 1 -15 3C-15 -6 -6 -14 0 -24Z"/></defs>
+<g fill="#16a37a" stroke="#16a37a" stroke-width="6" stroke-linejoin="round">
+<polygon points="250.6,28.6 230.6,82 252.5,121.7 273.4,70.6"/><polygon points="155,70 179.3,115.2 228.8,125.7 207,81.5"/><polygon points="349,70 324.7,115.2 275.2,125.7 297,81.5"/></g>
+<g fill="#ee2a68">
+<use href="#d" transform="translate(150 162) scale(1.05)"/><use href="#d" transform="translate(193 168) scale(1.015)"/><use href="#d" transform="translate(232 172) scale(.97)"/><use href="#d" transform="translate(272 172) scale(.97)"/><use href="#d" transform="translate(311 168) scale(1.015)"/><use href="#d" transform="translate(354 162) scale(1.05)"/>
+<use href="#d" transform="translate(129 214) scale(1.2)"/><use href="#d" transform="translate(172 218) scale(1.11)"/><use href="#d" transform="translate(212 221) scale(1.04)"/><use href="#d" transform="translate(252 222) scale(1.03)"/><use href="#d" transform="translate(292 221) scale(1.04)"/><use href="#d" transform="translate(332 218) scale(1.11)"/><use href="#d" transform="translate(375 214) scale(1.2)"/>
+<use href="#d" transform="translate(150 267) scale(1.07)"/><use href="#d" transform="translate(192 269) scale(1.04)"/><use href="#d" transform="translate(232 270) scale(1)"/><use href="#d" transform="translate(272 270) scale(1)"/><use href="#d" transform="translate(311 269) scale(1.04)"/><use href="#d" transform="translate(354 267) scale(1.07)"/>
+<use href="#d" transform="translate(171 318) scale(1.04)"/><use href="#d" transform="translate(212 321) scale(1.02)"/><use href="#d" transform="translate(252 322) scale(1.02)"/><use href="#d" transform="translate(292 321) scale(1.02)"/><use href="#d" transform="translate(333 318) scale(1.04)"/>
+<use href="#d" transform="translate(192 366) scale(1)"/><use href="#d" transform="translate(232 371) scale(1)"/><use href="#d" transform="translate(272 371) scale(1)"/><use href="#d" transform="translate(312 366) scale(1)"/></g>
+</svg>
