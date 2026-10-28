@@ -1,29 +1,43 @@
 # Razzberry
 
-Razzberry is building the system of record for creative rights: give every creative work a permanent identity, and keep a clear record of who made it, who owns it and how it earns.
+The **fan counter**. A fan checks in at a live show, and for every artist on the bill their number goes up by one. Your number for an artist is how many of that artist's shows you have been to.
 
-This repo is the early foundation: a polished home page, email/password accounts and a welcome page. The rights tools themselves are not built yet, and the app doesn't claim they are.
-
-## What's in the app
+## Screens
 
 | Route | What it is |
 | --- | --- |
-| `/` | Public home page with a real-time 3D raspberry hero, "Create. Prove. Own." and calls to action |
-| `/signup` | Create an account (name, email, password with confirmation) |
-| `/signin` | Sign in with email and password |
-| `/forgot-password` | Firebase password-reset email |
-| `/welcome` | Signed-in welcome page (name, email, sign out). Protected |
+| `/signin`, `/signup`, `/forgot-password` | Email and password accounts |
+| `/` | Home (signed in): **Tonight** (shows on now or later today, each with a big "I'm here") and **Your numbers** (one row per artist) |
+| `/artist/:id` | The artist's picture, name, total fans and past shows |
+| `/admin` | Admins only: add a show, edit its end time or delete it, upload one picture per artist |
+| `/location-help` | How to turn on location, shown if the browser says no |
+| `/welcome` | Account: who you are, and sign out |
 
-Signed-in visitors are redirected away from the sign-in/up pages, and signed-out visitors can't open `/welcome`.
+## How it works
+
+- **Check-in.** The app says "We use your location once to confirm you're at the show", asks the browser for the position, and calls the `checkIn` callable Cloud Function (v2). The function accepts the check-in only if the show is live (from 15 minutes before it starts to 15 minutes after it ends), the phone's accuracy is 200 m or better, and the fan is within 150 m of the venue (up to 50 m of reported accuracy is forgiven). It is one check-in per fan per show, and a second tap just says "already checked in". The fan's coordinates are never stored.
+- **Counting.** In one transaction the function writes `checkins/{showId}_{uid}`, adds one to `users/{uid}/artistCounts/{artistId}` for each artist on the bill, and, the first time a fan is counted for an artist, adds `artists/{artistId}/fans/{uid}` and one to the artist's `fanCount` (distinct fans, never double counted).
+- **Admins** are the users with a document in `admins/{uid}`. Clients cannot write that collection. Seed it with `functions/scripts/seed-admin.mjs` (see below) or by hand in the Firebase console.
+- **Artist pictures.** An admin picks one picture per artist; the browser shrinks it to at most 1000 px and the `setArtistImage` function (admins only) checks the type and the 5 MB cap and stores it at `artists/{artistId}/image` in Cloud Storage. Storage rules make those files public to read and closed to every client write.
+- **Rules.** Signed-in users read shows and artists; only admins write them (shows: create, change the end time, delete; artists: add and rename). A fan reads only their own numbers and check-ins. Check-ins, counts, fan totals and images are written only by the functions.
+
+### Adding the first admin
+
+1. The person signs up in the app.
+2. With access to the `new-raz-prod` project (for example `gcloud auth application-default login`):
+
+```sh
+cd functions && npm ci
+node scripts/seed-admin.mjs their-email@example.com
+```
+
+Or in the Firebase console: Firestore, start collection `admins`, document ID = their user ID (Authentication, Users, User UID), any field (for example `email`).
 
 ### How it's built
 
-- **React 19 + TypeScript + Vite**, with no UI library. Styling is plain CSS (`src/styles`) with design tokens, glass panels, glow and grain. The font (Outfit) is self-hosted.
-- **Theme:** dark by default with a light-mode switch. The choice is stored in `localStorage` (`razzberry-theme`) and applied by a tiny inline script before first paint, so there's no flash.
-- **3D hero:** `src/three` builds a glossy raspberry with plain three.js, laid out from the logo (drupelets in rows of 6/7/6/5/4 plus a three-leaf crown; geometry lives in `src/lib/raspberry.ts` and is shared with the SVG mark). It loads lazily after first paint, follows the pointer, and pauses when off-screen or in a background tab. An SVG version of the same berry shows while loading, without WebGL, on any error, and when `prefers-reduced-motion` is set.
-- **Auth:** Firebase Authentication (email/password only). Firebase is loaded on demand (after idle on the home page), so it never blocks first paint. Sign-up also writes `users/{uid}` (`displayName`, `email`, `createdAt`).
-- **Firestore rules:** each user can read and create/update only their own `users/{uid}` document, with a strict field allowlist. Nothing else is readable or writable. Storage is deny-by-default.
-- **Functions:** a single `healthCheck` callable keeps the Functions package valid. There is no AI or OpenAI code today. (`OPENAI_API_KEY2` may stay in Secret Manager for future work; nothing reads it.)
+- **React 19 + TypeScript + Vite**, no UI library. Plain CSS in `src/styles`: the Aurora look (`app.css`, `screens.css`) for the app screens, and the sign-in styles (`base.css`, `components.css`, `pages.css`). The font (Outfit) is self-hosted. Dark by default with a light switch.
+- **Firebase** (Auth, Firestore, Functions, Storage) is loaded on demand. All Firestore and Functions calls are in `src/data/api.ts`; the screens never import Firebase directly.
+- **Functions** live in `functions/`; the check-in rules are plain functions in `functions/lib/checkin.js` with tests.
 
 ## Local development
 
@@ -36,7 +50,7 @@ npm run dev                  # http://localhost:5173
 npm run lint
 npm test                     # unit + route smoke tests (Vitest, jsdom)
 npm run build
-npm run test:rules           # Firestore + Storage rules emulator tests
+npm run test:rules           # Firestore + Storage rules emulator tests (needs Java)
 
 npm ci --prefix functions
 npm run lint --prefix functions

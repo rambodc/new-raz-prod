@@ -32,6 +32,76 @@ service cloud.firestore {
       allow list, delete: if false;
     }
 
+    // Admins are listed in admins/{uid}. A signed-in user can read only their own entry (so the app knows
+    // whether to show the admin page). Nobody can write here from a client: it is seeded with the Admin SDK.
+    function isAdmin() {
+      return request.auth != null && exists(/databases/$(database)/documents/admins/$(request.auth.uid));
+    }
+
+    match /admins/{uid} {
+      allow get: if isOwner(uid);
+      allow list, write: if false;
+    }
+
+    // The fan's own numbers, one document per artist. Only the checkIn function writes them.
+    match /users/{userId}/artistCounts/{artistId} {
+      allow read: if isOwner(userId);
+      allow write: if false;
+    }
+
+    // Artists are readable by signed-in users. Admins can add an artist and rename it. The fan total and the
+    // image are set only by Cloud Functions. Fans who counted toward the total are in a "fans" subcollection that
+    // clients never touch.
+    match /artists/{artistId} {
+      allow read: if request.auth != null;
+      allow create: if isAdmin()
+        && request.resource.data.keys().hasOnly(['name', 'nameLower', 'fanCount', 'createdAt'])
+        && request.resource.data.keys().hasAll(['name', 'nameLower', 'fanCount', 'createdAt'])
+        && request.resource.data.name is string
+        && request.resource.data.name.size() > 0
+        && request.resource.data.name.size() <= 80
+        && request.resource.data.nameLower is string
+        && request.resource.data.fanCount == 0
+        && request.resource.data.createdAt == request.time;
+      allow update: if isAdmin()
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['name', 'nameLower'])
+        && request.resource.data.name is string
+        && request.resource.data.name.size() > 0
+        && request.resource.data.name.size() <= 80;
+      allow delete: if false;
+    }
+
+    // Shows are readable by signed-in users. Admins add them, change the end time, or delete them.
+    function validShow(d) {
+      return d.keys().hasOnly(['venue', 'lat', 'lng', 'startsAt', 'endsAt', 'artistIds', 'artistNames', 'createdAt', 'createdBy'])
+        && d.keys().hasAll(['venue', 'lat', 'lng', 'startsAt', 'endsAt', 'artistIds', 'artistNames', 'createdAt', 'createdBy'])
+        && d.venue is string && d.venue.size() > 0 && d.venue.size() <= 120
+        && d.lat is number && d.lat >= -90 && d.lat <= 90
+        && d.lng is number && d.lng >= -180 && d.lng <= 180
+        && d.startsAt is timestamp && d.endsAt is timestamp && d.endsAt > d.startsAt
+        && d.artistIds is list && d.artistIds.size() >= 1 && d.artistIds.size() <= 20
+        && d.artistNames is list && d.artistNames.size() == d.artistIds.size()
+        && d.createdAt == request.time
+        && d.createdBy == request.auth.uid;
+    }
+
+    match /shows/{showId} {
+      allow read: if request.auth != null;
+      allow create: if isAdmin() && validShow(request.resource.data);
+      allow update: if isAdmin()
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['endsAt'])
+        && request.resource.data.endsAt is timestamp
+        && request.resource.data.endsAt > resource.data.startsAt;
+      allow delete: if isAdmin();
+    }
+
+    // Check-ins are written only by the checkIn function. A fan can read their own, by id ("showId_uid") or by query.
+    match /checkins/{checkinId} {
+      allow get: if request.auth != null && checkinId.matches('^[A-Za-z0-9]+_' + request.auth.uid + '$');
+      allow list: if request.auth != null && resource.data.uid == request.auth.uid;
+      allow write: if false;
+    }
+
     // Everything else is closed.
     match /{document=**} {
       allow read, write: if false;

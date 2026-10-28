@@ -1,6 +1,6 @@
 export const MIN_PASSWORD_LENGTH = 8;
-export const MAX_PASSWORD_LENGTH = 128;
-export const MAX_NAME_LENGTH = 80;
+const MAX_PASSWORD_LENGTH = 128;
+const MAX_NAME_LENGTH = 80;
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/;
 

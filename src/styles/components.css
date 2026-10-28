@@ -12,6 +12,7 @@
 }
 
 /* Pointer-following light on glass surfaces. */
+
 .glass::after {
   content: "";
   position: absolute;
@@ -25,8 +26,8 @@
 
 @media (hover: hover) {
   .glass:hover::after {
-    opacity: 1;
-  }
+        opacity: 1;
+      }
 }
 
 /* ---------- Buttons ---------- */
@@ -90,12 +91,6 @@
   min-height: 40px;
   padding: 0 18px;
   font-size: 0.9375rem;
-}
-
-.btn-lg {
-  min-height: 56px;
-  padding: 0 30px;
-  font-size: 1.0625rem;
 }
 
 .btn-block {
@@ -164,53 +159,16 @@
   line-height: 1;
 }
 
-.nav-wrap {
-  position: sticky;
-  top: 0;
-  z-index: 30;
-  padding: 14px 16px 0;
-}
-
-.nav {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  max-width: 1120px;
-  margin: 0 auto;
-  padding: 8px 10px 8px 18px;
-  border-radius: 999px;
-}
-
-.nav::after {
-  display: none;
-}
-
 .nav-actions {
   display: flex;
   align-items: center;
   gap: 10px;
 }
 
-.nav-link {
-  padding: 8px 12px;
-  color: var(--text);
-  font-weight: 500;
-  border-radius: 999px;
-}
-
-.nav-link:hover {
-  text-decoration: none;
-  background: var(--glass);
-}
-
 @media (max-width: 440px) {
-  .nav-link {
-    display: none;
-  }
   .brand-word {
-    font-size: 1.15rem;
-  }
+        font-size: 1.15rem;
+      }
 }
 
 /* ---------- Forms ---------- */
@@ -351,14 +309,3 @@
 }
 
 /* ---------- Scroll reveal ---------- */
-
-.reveal {
-  opacity: 0;
-  transform: translateY(18px);
-  transition: opacity 0.8s var(--ease) var(--d, 0ms), transform 0.8s var(--ease) var(--d, 0ms);
-}
-
-.reveal.in {
-  opacity: 1;
-  transform: none;
-}

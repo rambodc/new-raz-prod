@@ -4,7 +4,7 @@ import { getAuth } from "firebase/auth";
 const env = import.meta.env;
 
 /** Firebase web config is public client configuration, supplied at build time. */
-export const firebaseConfig = {
+const firebaseConfig = {
   apiKey: env.VITE_FIREBASE_API_KEY,
   authDomain: env.VITE_FIREBASE_AUTH_DOMAIN,
   projectId: env.VITE_FIREBASE_PROJECT_ID,
@@ -13,11 +13,16 @@ export const firebaseConfig = {
   appId: env.VITE_FIREBASE_APP_ID,
 };
 
-export const app = getApps().length ? getApp() : initializeApp(firebaseConfig);
+const app = getApps().length ? getApp() : initializeApp(firebaseConfig);
 export const auth = getAuth(app);
 
-/** Firestore is only needed at sign-up, so it is loaded on demand. */
+/** Firestore and Functions are loaded on demand, so the sign-in pages stay small. */
 export async function getDb() {
   const { getFirestore } = await import("firebase/firestore");
   return getFirestore(app);
+}
+
+export async function getFns() {
+  const { getFunctions } = await import("firebase/functions");
+  return getFunctions(app, "us-central1");
 }

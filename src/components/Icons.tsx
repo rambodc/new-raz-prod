@@ -36,13 +36,3 @@ export const EyeOffIcon = (p: SVGProps<SVGSVGElement>) => (
     <path d="M9.9 9.9a3 3 0 0 0 4.2 4.2M3 3l18 18" />
   </svg>
 );
-export const ArrowIcon = (p: SVGProps<SVGSVGElement>) => (
-  <svg {...base} width={18} height={18} {...p}>
-    <path d="M5 12h14M13 6l6 6-6 6" />
-  </svg>
-);
-export const SparkIcon = (p: SVGProps<SVGSVGElement>) => (
-  <svg {...base} {...p}>
-    <path d="M12 3l1.8 5.2L19 10l-5.2 1.8L12 17l-1.8-5.2L5 10l5.2-1.8L12 3Z" />
-  </svg>
-);

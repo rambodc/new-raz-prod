@@ -16,6 +16,15 @@ const service = vi.hoisted(() => ({
   signOutUser: vi.fn(),
 }));
 
+// The screens talk to Firebase only through ./data/api. These tests never reach a backend.
+vi.mock("./data/api", () => ({
+  listTonight: vi.fn(async () => []),
+  listMyCheckIns: vi.fn(async () => new Set()),
+  listMyNumbers: vi.fn(async () => []),
+  getArtists: vi.fn(async () => new Map()),
+  isAdmin: vi.fn(async () => false),
+}));
+
 vi.mock("./auth/service", () => ({
   subscribeToAuth: async (onUser: (u: AuthUser | null) => void) => {
     state.listeners.add(onUser);
@@ -25,8 +34,6 @@ vi.mock("./auth/service", () => ({
   currentUser: async () => state.user,
   ...service,
 }));
-
-vi.mock("./lib/webgl", () => ({ hasWebGL: () => false, prefersReducedMotion: () => false }));
 
 import { AppRoutes } from "./App";
 import { AuthProvider } from "./auth/AuthProvider";
@@ -52,29 +59,6 @@ beforeEach(() => {
 });
 
 afterEach(cleanup);
-
-describe("home page", () => {
-  it("renders the hero, steps and calls to action without errors", async () => {
-    const error = vi.spyOn(console, "error").mockImplementation(() => {});
-    renderAt("/");
-    expect(await screen.findByRole("heading", { level: 1, name: /permanent identity/i })).toBeTruthy();
-    expect(screen.getByRole("heading", { name: "Create. Prove. Own." })).toBeTruthy();
-    expect(screen.getByRole("img", { name: /raspberry/i })).toBeTruthy();
-    expect(screen.getAllByRole("link", { name: /create your account/i }).length).toBeGreaterThan(0);
-    expect(error).not.toHaveBeenCalled();
-    error.mockRestore();
-  });
-
-  it("switches theme, persists the choice and updates the document", async () => {
-    renderAt("/");
-    const toggle = await screen.findByRole("button", { name: /switch to light mode/i });
-    expect(document.documentElement.dataset.theme).toBe("dark");
-    fireEvent.click(toggle);
-    expect(document.documentElement.dataset.theme).toBe("light");
-    expect(localStorage.getItem("razzberry-theme")).toBe("light");
-    expect(screen.getByRole("button", { name: /switch to dark mode/i })).toBeTruthy();
-  });
-});
 
 describe("sign in", () => {
   it("shows friendly validation errors for empty fields", async () => {
@@ -148,27 +132,37 @@ describe("forgot password", () => {
 });
 
 describe("route guards", () => {
-  it("sends signed-out visitors from /welcome to sign in", async () => {
-    renderAt("/welcome");
+  it.each(["/", "/welcome", "/admin", "/artist/abc", "/location-help"])("sends signed-out visitors from %s to sign in", async (path) => {
+    renderAt(path);
     expect(await screen.findByRole("heading", { name: "Welcome back" })).toBeTruthy();
   });
 
-  it("shows the signed-in welcome page with the user's name", async () => {
+  it("shows the account page with the user's name", async () => {
     state.user = { uid: "u1", displayName: "Ada Lovelace", email: "ada@example.com" };
     renderAt("/welcome");
     expect(await screen.findByRole("heading", { level: 1, name: /welcome, ada/i })).toBeTruthy();
     expect(screen.getByText("ada@example.com")).toBeTruthy();
     expect(screen.getByRole("button", { name: /sign out/i })).toBeTruthy();
+    expect(screen.getByRole("link", { name: /back to tonight/i }).getAttribute("href")).toBe("/");
   });
 
-  it("redirects signed-in users away from the auth pages", async () => {
+  it("sends signed-in users from the auth pages to the home screen", async () => {
     state.user = { uid: "u1", displayName: "Ada Lovelace", email: "ada@example.com" };
     renderAt("/signin");
-    expect(await screen.findByRole("heading", { level: 1, name: /welcome, ada/i })).toBeTruthy();
+    expect(await screen.findByRole("heading", { level: 1, name: "Tonight" })).toBeTruthy();
   });
 
   it("shows a friendly 404", async () => {
     renderAt("/nope");
     expect(await screen.findByRole("heading", { name: /isn't here/i })).toBeTruthy();
+  });
+
+  it("no longer has the old design lab pages", async () => {
+    state.user = { uid: "u1", displayName: "Ada Lovelace", email: "ada@example.com" };
+    for (const path of ["/app", "/app/live", "/app/rep"]) {
+      renderAt(path);
+      expect(await screen.findByRole("heading", { name: /isn't here/i })).toBeTruthy();
+      cleanup();
+    }
   });
 });

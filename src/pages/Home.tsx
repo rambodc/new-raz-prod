@@ -1,96 +1,84 @@
 import { Link } from "react-router-dom";
+import CheckInButton from "../app/CheckInButton";
+import { Avatar } from "../components/Avatar";
 import { useAuth } from "../auth/AuthProvider";
-import { ArrowIcon } from "../components/Icons";
-import { HeroVisual } from "../components/HeroVisual";
-import { Ambient, Footer, Nav } from "../components/Layout";
-import { spotlight, useReveal } from "../lib/hooks";
+import { getArtists, listMyCheckIns, listMyNumbers, listTonight } from "../data/api";
+import { isLiveNow, lineup, whenLabel } from "../data/shows";
+import type { Artist, FanNumber, Show } from "../data/types";
+import { useLoad } from "../lib/hooks";
 
-const STEPS = [
-  { n: "01", title: "Create", body: "Give every creative work a permanent identity from the moment it exists." },
-  { n: "02", title: "Prove", body: "Keep a clear record of who made it, who contributed, and when." },
-  { n: "03", title: "Own", body: "See who owns what and how it earns, in one trusted place." },
-];
+type Data = { shows: Show[]; checkedIn: Set<string>; numbers: FanNumber[]; artists: Map<string, Artist> };
+
+async function loadHome(uid: string): Promise<Data> {
+  const [shows, checkedIn, numbers] = await Promise.all([listTonight(new Date()), listMyCheckIns(uid), listMyNumbers(uid)]);
+  const artists = await getArtists(numbers.map((n) => n.artistId));
+  return { shows, checkedIn, numbers, artists };
+}
 
 export default function Home() {
   const { user } = useAuth();
-  const root = useReveal<HTMLDivElement>();
+  const uid = user?.uid ?? "";
+  const { data, loading, error, reload } = useLoad(() => loadHome(uid), uid);
+  const now = new Date();
+
   return (
-    <div className="page home" ref={root}>
-      <Ambient />
-      <a className="skip-link" href="#main">
-        Skip to content
-      </a>
-      <Nav />
-      <main id="main">
-        <section className="hero">
-          <div className="hero-copy">
-            <p className="eyebrow reveal">
-              <span className="dot" aria-hidden="true" /> Creative rights infrastructure
-            </p>
-            <h1 className="reveal" style={{ "--d": "80ms" } as React.CSSProperties}>
-              Every creative work deserves a <span className="grad">permanent identity.</span>
-            </h1>
-            <p className="lede reveal" style={{ "--d": "160ms" } as React.CSSProperties}>
-              Razzberry is building the system of record for who made it, who owns it and how it earns.
-            </p>
-            <div className="cta-row reveal" style={{ "--d": "240ms" } as React.CSSProperties}>
-              {user ? (
-                <Link to="/welcome" className="btn btn-primary btn-lg">
-                  Open Razzberry <ArrowIcon />
-                </Link>
-              ) : (
-                <>
-                  <Link to="/signup" className="btn btn-primary btn-lg">
-                    Create your account <ArrowIcon />
-                  </Link>
-                  <Link to="/signin" className="btn btn-ghost btn-lg">
-                    Sign in
-                  </Link>
-                </>
-              )}
-            </div>
-            <p className="fine reveal" style={{ "--d": "320ms" } as React.CSSProperties}>
-              Early access. Accounts are open while we build the rest.
-            </p>
-          </div>
-          <HeroVisual />
-        </section>
-
-        <section className="section" aria-labelledby="how-title">
-          <div className="section-head reveal">
-            <p className="eyebrow">How it works</p>
-            <h2 id="how-title">Create. Prove. Own.</h2>
-            <p className="section-sub">Three ideas at the heart of Razzberry, and where we're headed.</p>
-          </div>
-          <ol className="steps">
-            {STEPS.map((s, i) => (
-              <li key={s.n} className="step glass reveal" style={{ "--d": `${i * 90}ms` } as React.CSSProperties} onPointerMove={spotlight}>
-                <span className="step-n">{s.n}</span>
-                <h3>{s.title}</h3>
-                <p>{s.body}</p>
+    <div className="home">
+      <section aria-labelledby="tonight-title">
+        <h1 id="tonight-title" className="lb-display">
+          Tonight
+        </h1>
+        {loading && !data && <p className="muted">Loading…</p>}
+        {error && !data && (
+          <p className="muted">
+            Couldn't load. <button type="button" className="link-btn" onClick={reload}>Try again</button>
+          </p>
+        )}
+        {data && data.shows.length === 0 && <p className="muted">No shows today.</p>}
+        <ul className="stack">
+          {data?.shows.map((show) => {
+            const done = data.checkedIn.has(show.id);
+            const live = isLiveNow(show, now);
+            return (
+              <li key={show.id} className="lb-card show-card">
+                <p className="show-when">{whenLabel(show, now)}</p>
+                <h2 className="show-venue">{show.venue}</h2>
+                <p className="show-lineup">{lineup(show)}</p>
+                {done ? (
+                  <p className="checked-line" role="status">
+                    <span aria-hidden="true">✓</span> Checked in
+                  </p>
+                ) : live ? (
+                  <CheckInButton showId={show.id} onChecked={reload} />
+                ) : (
+                  <button type="button" className="lb-btn lb-btn--big" disabled>
+                    I'm here
+                  </button>
+                )}
               </li>
-            ))}
-          </ol>
-        </section>
+            );
+          })}
+        </ul>
+      </section>
 
-        <section className="section" aria-labelledby="status-title">
-          <div className="status glass reveal" onPointerMove={spotlight}>
-            <div>
-              <p className="eyebrow">Where we are</p>
-              <h2 id="status-title">Just getting started.</h2>
-              <p className="section-sub">
-                Razzberry is in its earliest stage. You can create an account today. The rights tools themselves are still being built, and we'll share them as they're ready.
-              </p>
-            </div>
-            {!user && (
-              <Link to="/signup" className="btn btn-primary btn-lg">
-                Join early <ArrowIcon />
+      <section aria-labelledby="numbers-title" className="numbers">
+        <h2 id="numbers-title" className="lb-label">
+          Your numbers
+        </h2>
+        {data && data.numbers.length === 0 && <p className="muted">Check in at a show to get your first number.</p>}
+        <ul className="stack">
+          {data?.numbers.map((n) => (
+            <li key={n.artistId}>
+              <Link to={`/artist/${n.artistId}`} className="lb-card num-row">
+                <Avatar name={n.artistName} url={data.artists.get(n.artistId)?.imageUrl ?? null} />
+                <span className="num-name">{n.artistName}</span>
+                <strong className="num-count" aria-label={`${n.count} ${n.count === 1 ? "show" : "shows"}`}>
+                  {n.count}
+                </strong>
               </Link>
-            )}
-          </div>
-        </section>
-      </main>
-      <Footer />
+            </li>
+          ))}
+        </ul>
+      </section>
     </div>
   );
 }
