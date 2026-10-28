@@ -1,4 +1,5 @@
 import { Link } from "react-router-dom";
+import DemoData from "../app/admin/DemoData";
 import ArtistImages from "../app/admin/ArtistImages";
 import ShowForm from "../app/admin/ShowForm";
 import ShowList from "../app/admin/ShowList";
@@ -15,6 +16,12 @@ function AdminTools() {
   };
   return (
     <>
+      <section aria-labelledby="demo-title">
+        <h2 id="demo-title" className="lb-label">
+          Demo data
+        </h2>
+        <DemoData onChanged={refresh} />
+      </section>
       <section aria-labelledby="add-title">
         <h2 id="add-title" className="lb-label">
           Add a show

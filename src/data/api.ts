@@ -98,11 +98,14 @@ export async function listArtists(): Promise<Artist[]> {
   return snap.docs.map(toArtist);
 }
 
-/** Adds a show. Artists who are not in the database yet are created first. */
-export async function createShow(input: NewShow): Promise<string> {
+/**
+ * Adds a show. Artists who are not in the database yet are created first.
+ * With `fixedId` the show gets that id: if it already exists it is left alone (or, with `replace`, deleted and added again).
+ */
+export async function createShow(input: NewShow, fixedId?: { id: string; replace: boolean }): Promise<string> {
   const uid = auth.currentUser?.uid;
   if (!uid) throw new Error("Sign in first.");
-  const { db, doc, collection, getDoc, setDoc, addDoc, serverTimestamp, Timestamp } = await fs();
+  const { db, doc, collection, getDoc, setDoc, addDoc, deleteDoc, serverTimestamp, Timestamp } = await fs();
   const names = cleanLineup(input.artistNames);
   if (names.length === 0) throw new Error("Add at least one artist.");
   const ids: string[] = [];
@@ -114,7 +117,7 @@ export async function createShow(input: NewShow): Promise<string> {
       await setDoc(ref, { name, nameLower: name.toLowerCase(), fanCount: 0, createdAt: serverTimestamp() });
     }
   }
-  const ref = await addDoc(collection(db, "shows"), {
+  const data = {
     venue: input.venue.trim(),
     lat: input.lat,
     lng: input.lng,
@@ -124,8 +127,15 @@ export async function createShow(input: NewShow): Promise<string> {
     artistNames: names,
     createdAt: serverTimestamp(),
     createdBy: uid,
-  });
-  return ref.id;
+  };
+  if (!fixedId) return (await addDoc(collection(db, "shows"), data)).id;
+  const ref = doc(db, "shows", fixedId.id);
+  if ((await getDoc(ref)).exists()) {
+    if (!fixedId.replace) return fixedId.id;
+    await deleteDoc(ref);
+  }
+  await setDoc(ref, data);
+  return fixedId.id;
 }
 
 export async function updateShowEnd(showId: string, endsAt: Date): Promise<void> {
