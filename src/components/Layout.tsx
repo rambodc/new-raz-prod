@@ -1,6 +1,5 @@
-import { Link, NavLink } from "react-router-dom";
-import { useAuth } from "../auth/AuthProvider";
-import { ArrowIcon, MoonIcon, SunIcon } from "./Icons";
+import { Link } from "react-router-dom";
+import { MoonIcon, SunIcon } from "./Icons";
 import { RaspberryMark, Wordmark } from "./RaspberryMark";
 import { useTheme } from "./ThemeProvider";
 
@@ -31,46 +30,6 @@ export function BrandLink() {
       <RaspberryMark className="brand-mark" />
       <Wordmark className="brand-word" />
     </Link>
-  );
-}
-
-export function Nav() {
-  const { user } = useAuth();
-  return (
-    <header className="nav-wrap">
-      <nav className="nav glass" aria-label="Main">
-        <BrandLink />
-        <div className="nav-actions">
-          <ThemeToggle />
-          {user ? (
-            <Link to="/welcome" className="btn btn-primary btn-sm">
-              Open Razzberry <ArrowIcon />
-            </Link>
-          ) : (
-            <>
-              <NavLink to="/signin" className="nav-link">
-                Sign in
-              </NavLink>
-              <Link to="/signup" className="btn btn-primary btn-sm">
-                Get started
-              </Link>
-            </>
-          )}
-        </div>
-      </nav>
-    </header>
-  );
-}
-
-export function Footer() {
-  return (
-    <footer className="footer">
-      <div className="footer-inner">
-        <BrandLink />
-        <p className="footer-tag">Creative rights infrastructure.</p>
-        <p className="footer-copy">© {new Date().getFullYear()} Razzberry. All rights reserved.</p>
-      </div>
-    </footer>
   );
 }
 

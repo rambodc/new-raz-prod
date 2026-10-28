@@ -1,6 +1,6 @@
 export type Theme = "dark" | "light";
 
-export const THEME_KEY = "razzberry-theme";
+const THEME_KEY = "razzberry-theme";
 
 /** Dark is the default. Only an explicit, stored choice switches to light. */
 export function resolveTheme(stored: string | null | undefined): Theme {

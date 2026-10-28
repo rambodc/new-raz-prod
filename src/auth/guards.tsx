@@ -20,14 +20,14 @@ export function RequireAuth() {
   return <Outlet />;
 }
 
-/** Sign-in, sign-up and password reset: signed-in users go straight to the welcome page. */
+/** Sign-in, sign-up and password reset: signed-in users go straight to the app. */
 export function GuestOnly() {
   const { user, loading, holdRedirect } = useAuth();
   const location = useLocation();
   if (loading) return <Splash />;
   if (user && !holdRedirect) {
     const from = (location.state as { from?: string } | null)?.from;
-    return <Navigate to={from && from.startsWith("/") && !from.startsWith("//") ? from : "/welcome"} replace />;
+    return <Navigate to={from && from.startsWith("/") && !from.startsWith("//") ? from : "/"} replace />;
   }
   return <Outlet />;
 }

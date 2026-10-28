@@ -1,6 +1,13 @@
 rules_version = '2';
 service firebase.storage {
   match /b/{bucket}/o {
+    // Artist images are public to read, so a plain <img> works. Nobody can write from a client: the
+    // setArtistImage function (admins only) saves them, checks the type and caps the size at 5 MB.
+    match /artists/{artistId}/{file} {
+      allow read: if true;
+      allow write: if false;
+    }
+
     match /{object=**} {
       allow read, write: if false;
     }

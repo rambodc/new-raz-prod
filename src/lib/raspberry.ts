@@ -7,7 +7,7 @@ export type Drupelet = { x: number; y: number; s: number; row: number };
 export type Point = readonly [number, number];
 
 /** Horizontal centre of the mark in logo coordinates. */
-export const CX = 252;
+const CX = 252;
 
 /** Row layout: 6 / 7 / 6 / 5 / 4 drupelets. dx values are mirrored around the centre line. */
 const ROWS: { dx: number[]; y: number[]; s: number[] }[] = [

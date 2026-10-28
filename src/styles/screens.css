@@ -1,0 +1,421 @@
+/* The fan counter screens: Tonight and your numbers, the artist page, the admin page and the location help. */
+
+.app .stack {
+  display: grid;
+  gap: 14px;
+}
+
+.app .muted {
+  margin: 0;
+  color: var(--lb-muted);
+}
+
+.app h2 {
+  margin: 0;
+}
+
+.app .home {
+  display: grid;
+  gap: 40px;
+}
+
+.app .home .lb-display,
+.app .artist .lb-display,
+.app .admin .lb-display,
+.app .help .lb-display {
+  margin: 0 0 18px;
+}
+
+.app-loading {
+  min-height: 40vh;
+}
+
+.app-pill {
+  display: inline-flex;
+  align-items: center;
+  height: 32px;
+  padding: 0 14px;
+  font-size: 0.8125rem;
+  font-weight: 650;
+  color: var(--lb-text);
+  background: var(--lb-card);
+  border: 1px solid var(--lb-border);
+  border-radius: 999px;
+}
+
+.app-pill:hover {
+  text-decoration: none;
+  border-color: var(--lb-accent);
+}
+
+/* ---------- Tonight ---------- */
+
+.show-card {
+  display: grid;
+  gap: 6px;
+  padding: 22px 22px 20px;
+}
+
+.show-when {
+  margin: 0;
+  font-size: 0.8125rem;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--lb-accent-2);
+}
+
+.show-venue {
+  font-size: 1.6rem;
+  line-height: 1.15;
+  letter-spacing: -0.02em;
+  font-weight: 700;
+  margin: 0;
+}
+
+.show-lineup {
+  margin: 0 0 12px;
+  color: var(--lb-muted);
+  font-size: 1.0625rem;
+}
+
+.lb-btn--big {
+  width: 100%;
+  min-height: 64px;
+  font-size: 1.25rem;
+  letter-spacing: -0.01em;
+}
+
+.lb-btn:disabled {
+  opacity: 0.45;
+  cursor: default;
+  transform: none;
+}
+
+.checked-line {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  min-height: 64px;
+  margin: 0;
+  font-size: 1.25rem;
+  font-weight: 650;
+  color: var(--lb-text);
+  background: var(--lb-faint);
+  border-radius: 999px;
+}
+
+.checked-line span {
+  color: #4ade80;
+}
+
+.checkin-note {
+  margin: 12px 4px 0;
+  font-size: 0.9375rem;
+  color: var(--lb-muted);
+}
+
+.checkin-note--bad {
+  color: #ff8aa8;
+}
+
+.app.is-light .checkin-note--bad {
+  color: #c01048;
+}
+
+.link-btn {
+  padding: 0;
+  color: var(--lb-accent-2);
+  font: inherit;
+  text-decoration: underline;
+  background: none;
+  border: 0;
+  cursor: pointer;
+}
+
+/* ---------- Your numbers ---------- */
+
+.numbers {
+  display: grid;
+  gap: 14px;
+}
+
+.num-row {
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  align-items: center;
+  gap: 16px;
+  padding: 14px 22px 14px 14px;
+  color: var(--lb-text);
+  transition: transform 0.3s var(--ease), border-color 0.3s;
+}
+
+.num-row:hover {
+  text-decoration: none;
+  transform: translateY(-2px);
+  border-color: var(--lb-accent);
+}
+
+.num-name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 1.25rem;
+  font-weight: 650;
+  letter-spacing: -0.01em;
+}
+
+.num-count {
+  font-size: 3rem;
+  line-height: 1;
+  font-weight: 750;
+  letter-spacing: -0.04em;
+  font-variant-numeric: tabular-nums;
+  background: var(--lb-grad);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+}
+
+.avatar {
+  display: grid;
+  place-items: center;
+  width: 52px;
+  height: 52px;
+  flex: none;
+  object-fit: cover;
+  border-radius: 50%;
+  background: var(--lb-faint);
+}
+
+.avatar--blank {
+  color: #fff;
+  font-weight: 700;
+  font-size: 1.25rem;
+  background: var(--lb-grad);
+}
+
+/* ---------- Artist ---------- */
+
+.back-link {
+  display: inline-block;
+  margin-bottom: 18px;
+  color: var(--lb-muted);
+  font-weight: 560;
+}
+
+.artist {
+  display: grid;
+  gap: 10px;
+}
+
+.artist-image {
+  display: grid;
+  place-items: center;
+  width: 100%;
+  max-width: 420px;
+  aspect-ratio: 1;
+  object-fit: cover;
+  border-radius: var(--lb-radius);
+  box-shadow: var(--lb-shadow);
+  margin-bottom: 8px;
+}
+
+.artist-image--blank {
+  color: #fff;
+  font-size: 6rem;
+  font-weight: 750;
+  background: var(--lb-grad);
+}
+
+.artist .artist-name {
+  margin-bottom: 0;
+}
+
+.artist-fans {
+  margin: 0 0 22px;
+  color: var(--lb-muted);
+  font-size: 1.25rem;
+}
+
+.artist-fans strong {
+  color: var(--lb-text);
+  font-size: 2.4rem;
+  font-weight: 750;
+  letter-spacing: -0.03em;
+  margin-right: 6px;
+}
+
+.past-row {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 16px 20px;
+  font-weight: 600;
+}
+
+/* ---------- Location help ---------- */
+
+.help {
+  display: grid;
+  gap: 16px;
+}
+
+.help-card {
+  padding: 20px 22px;
+}
+
+.help-card ol {
+  margin: 10px 0 0;
+  padding-left: 22px;
+  list-style: decimal;
+}
+
+.help-card li {
+  margin-bottom: 8px;
+}
+
+.help .lb-btn {
+  margin-top: 8px;
+}
+
+/* ---------- Admin ---------- */
+
+.admin {
+  display: grid;
+  gap: 28px;
+}
+
+.admin section {
+  display: grid;
+  gap: 14px;
+}
+
+.admin-card {
+  display: grid;
+  gap: 10px;
+  padding: 20px;
+}
+
+.form fieldset {
+  display: grid;
+  gap: 10px;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  min-width: 0;
+}
+
+.form legend {
+  padding: 0;
+  margin-bottom: 8px;
+  font-size: 0.75rem;
+  font-weight: 600;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--lb-muted);
+}
+
+.admin label {
+  display: grid;
+  gap: 6px;
+  min-width: 0;
+  font-size: 0.875rem;
+  color: var(--lb-muted);
+}
+
+.admin input:not([type="file"]) {
+  width: 100%;
+  min-height: 48px;
+  padding: 0 14px;
+  color: var(--lb-text);
+  font: inherit;
+  background: var(--lb-faint);
+  border: 1px solid var(--lb-border);
+  border-radius: 14px;
+}
+
+.admin input:focus-visible {
+  outline: 2px solid var(--lb-accent-2);
+  outline-offset: 2px;
+}
+
+.admin .row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: end;
+  gap: 10px;
+}
+
+.admin .row > * {
+  flex: 1 1 140px;
+}
+
+.admin .row > .lb-btn {
+  flex: 0 0 auto;
+}
+
+.admin .lb-btn {
+  min-height: 46px;
+  padding: 0 20px;
+  font-size: 0.9375rem;
+}
+
+.admin .lb-btn--big {
+  min-height: 60px;
+  font-size: 1.125rem;
+}
+
+.admin .danger {
+  color: #ff8aa8;
+}
+
+.places {
+  display: grid;
+  gap: 6px;
+}
+
+.places button {
+  width: 100%;
+  padding: 10px 14px;
+  color: var(--lb-text);
+  font: inherit;
+  font-size: 0.875rem;
+  text-align: left;
+  background: var(--lb-faint);
+  border: 1px solid var(--lb-border);
+  border-radius: 14px;
+  cursor: pointer;
+}
+
+.artist-row {
+  grid-template-columns: auto 1fr;
+  align-items: center;
+  column-gap: 14px;
+}
+
+.artist-row .file-btn,
+.artist-row .checkin-note {
+  grid-column: 1 / -1;
+  margin: 0;
+}
+
+.file-btn {
+  position: relative;
+  overflow: hidden;
+  cursor: pointer;
+}
+
+.file-btn input {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  opacity: 0;
+  cursor: pointer;
+}
+
+.file-btn.is-busy {
+  opacity: 0.6;
+}
