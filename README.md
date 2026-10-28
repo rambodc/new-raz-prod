@@ -33,6 +33,10 @@ node scripts/seed-admin.mjs their-email@example.com
 
 Or in the Firebase console: Firestore, start collection `admins`, document ID = their user ID (Authentication, Users, User UID), any field (for example `email`).
 
+### Demo data
+
+On the admin page, **Add demo data** adds two real John Summit CTRL ESCAPE arena dates (Boston, Washington DC), a fake "TEST SHOW" at #6, 7115 48 St SE, Calgary for "Test DJ Raz" and John Summit that is open from now until 11:59 pm Calgary time, and one picture per artist. It is safe to tap again: real shows are never duplicated, existing pictures are kept, and the TEST show is re-created with a fresh window. Pictures and credits are in `public/demo/` (John Summit's photo is CC BY-SA 4.0, see `public/demo/CREDITS.md`).
+
 ### How it's built
 
 - **React 19 + TypeScript + Vite**, no UI library. Plain CSS in `src/styles`: the Aurora look (`app.css`, `screens.css`) for the app screens, and the sign-in styles (`base.css`, `components.css`, `pages.css`). The font (Outfit) is self-hosted. Dark by default with a light switch.
