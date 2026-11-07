@@ -59,7 +59,9 @@ describe("iOS workflow", () => {
     expect(archive).toContain("ca.razzberry.app");
     expect(archive).not.toContain("altool");
     expect(archive).not.toContain("iTMSTransporter");
-    expect(workflow).not.toContain("altool");
+    expect(workflow).toContain("6832082405");
+    expect(workflow).toContain("testflight-upload");
+    expect(workflow).not.toContain("submit-for-review");
     const upload = read("../../.github/workflows/ios-testflight.yml");
     expect(upload).toContain("workflow_dispatch");
     expect(upload).toContain("6832082405");

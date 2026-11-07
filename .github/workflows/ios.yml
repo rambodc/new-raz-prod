@@ -1,6 +1,9 @@
 name: iOS
 
-# Native compile and signed archive. TestFlight upload is ios-testflight.yml and is manual.
+# Native compile and signed archive on pull requests.
+# The head branch of this packaging PR also uploads one TestFlight build.
+# GitHub cannot dispatch ios-testflight.yml until that file is on the default branch.
+# That manual workflow does not submit for App Store review.
 on:
   pull_request:
     branches: [production]
@@ -185,3 +188,49 @@ jobs:
           ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
           ASC_KEY_P8: ${{ secrets.ASC_KEY_P8 }}
         run: bash scripts/ios/archive.sh
+
+  testflight-upload:
+    name: testflight-upload
+    if: github.event.pull_request.head.ref == 'cursor/ios-capacitor-shell-9bc7'
+    runs-on: macos-26
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - name: Configure the public web app
+        run: |
+          echo "VITE_FIREBASE_API_KEY=${{ vars.FIREBASE_API_KEY }}" >> "$GITHUB_ENV"
+          echo "VITE_FIREBASE_AUTH_DOMAIN=${{ vars.FIREBASE_AUTH_DOMAIN }}" >> "$GITHUB_ENV"
+          echo "VITE_FIREBASE_PROJECT_ID=new-raz-prod" >> "$GITHUB_ENV"
+          echo "VITE_FIREBASE_STORAGE_BUCKET=${{ vars.FIREBASE_STORAGE_BUCKET }}" >> "$GITHUB_ENV"
+          echo "VITE_FIREBASE_MESSAGING_SENDER_ID=${{ vars.FIREBASE_MESSAGING_SENDER_ID }}" >> "$GITHUB_ENV"
+          echo "VITE_FIREBASE_APP_ID=${{ vars.FIREBASE_APP_ID }}" >> "$GITHUB_ENV"
+      - run: npm ci --prefer-offline --no-audit --no-fund
+      - run: npm run build
+      - run: npx cap sync ios
+      - name: Install CocoaPods when the project uses them
+        working-directory: ios/App
+        run: |
+          if [ -f Podfile ]; then
+            pod install
+          fi
+      - name: Archive with the Razzberry distribution profile
+        env:
+          IOS_DIST_P12: ${{ secrets.IOS_DIST_P12 }}
+          IOS_DIST_P12_PASSWORD: ${{ secrets.IOS_DIST_P12_PASSWORD }}
+          IOS_APPSTORE_PROFILE: ${{ secrets.IOS_APPSTORE_PROFILE }}
+          ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
+          ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
+          ASC_KEY_P8: ${{ secrets.ASC_KEY_P8 }}
+        run: bash scripts/ios/archive.sh
+      - name: Upload to TestFlight and poll processing
+        env:
+          ASC_APP_ID: "6832082405"
+          ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
+          ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
+          ASC_KEY_P8: ${{ secrets.ASC_KEY_P8 }}
+          IPA_PATH: ios/App/output/Razzberry.ipa
+        run: python3 scripts/ios/upload_testflight.py
