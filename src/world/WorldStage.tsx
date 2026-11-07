@@ -1,9 +1,10 @@
 import { Canvas } from "@react-three/fiber";
-import { Component, createContext, useContext, useEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from "react";
+import { Component, createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from "react";
 import * as THREE from "three";
 import WorldScene, { type AnchorEls, type PortalStyle, type StageName } from "./WorldScene";
 import { layoutFor } from "./layout";
 import { canUseWebGL, prefersReducedMotion, qualityFor, readQualityInput } from "./quality";
+import { frameLoop, initialShell, listenNativeAppState, reduceShell, signalWebGL, type ShellEvent, type ShellState } from "./shellLifecycle";
 import type { WorldTheme } from "./theme";
 import "./world.css";
 
@@ -48,14 +49,44 @@ function useViewport() {
   return size;
 }
 
-function usePageHidden(): boolean {
-  const [hidden, setHidden] = useState(() => document.visibilityState === "hidden");
-  useEffect(() => {
-    const on = () => setHidden(document.visibilityState === "hidden");
-    document.addEventListener("visibilitychange", on);
-    return () => document.removeEventListener("visibilitychange", on);
+function canvasContextLost(): boolean {
+  const canvas = document.querySelector("canvas");
+  if (!(canvas instanceof HTMLCanvasElement)) return true;
+  const gl = canvas.getContext("webgl2") ?? canvas.getContext("webgl");
+  return !gl || gl.isContextLost();
+}
+
+function useShell(): { state: ShellState; dispatch: (event: ShellEvent) => void } {
+  const [state, setState] = useState<ShellState>(() => ({ ...initialShell, background: document.visibilityState === "hidden" }));
+  const dispatch = useCallback((event: ShellEvent) => {
+    setState((current) => reduceShell(current, event));
   }, []);
-  return hidden;
+
+  useEffect(() => {
+    const onVisibility = () => {
+      const hidden = document.visibilityState === "hidden";
+      dispatch({ type: "visibility", hidden });
+      if (!hidden) dispatch({ type: "resume-check", contextLost: canvasContextLost() });
+    };
+    document.addEventListener("visibilitychange", onVisibility);
+    let removeNative = () => {};
+    let cancelled = false;
+    void listenNativeAppState((active) => {
+      if (cancelled) return;
+      dispatch({ type: "native", active });
+      if (active) dispatch({ type: "resume-check", contextLost: canvasContextLost() });
+    }).then((remove) => {
+      if (cancelled) remove();
+      else removeNative = remove;
+    });
+    return () => {
+      cancelled = true;
+      document.removeEventListener("visibilitychange", onVisibility);
+      removeNative();
+    };
+  }, []);
+
+  return { state, dispatch };
 }
 
 class SceneBoundary extends Component<{ children: ReactNode; onFail: () => void }, { failed: boolean }> {
@@ -133,13 +164,12 @@ export default function WorldStage({
   children: ReactNode;
 }) {
   const reduced = useReducedMotion();
-  const hidden = usePageHidden();
+  const { state: shell, dispatch } = useShell();
   const size = useViewport();
   const quality = useMemo(() => qualityFor(readQualityInput()), []);
   const layout = useMemo(() => layoutFor(size.w, size.h), [size.w, size.h]);
   const [supported, setSupported] = useState(canUseWebGL);
-  const [lost, setLost] = useState(false);
-  const [attempt, setAttempt] = useState(0);
+  const [failed, setFailed] = useState(false);
   const anchors = useRef<AnchorEls>({ sign: null, portalHit: null, portalLabel: null, here: null });
   const binds = useMemo<Binds>(() => {
     const assign = (key: BindKey) => (node: HTMLElement | null) => {
@@ -147,7 +177,11 @@ export default function WorldStage({
     };
     return { sign: assign("sign"), portalHit: assign("portalHit"), portalLabel: assign("portalLabel"), here: assign("here") };
   }, []);
-  const showWebGL = supported && !lost;
+  const showWebGL = supported && !failed;
+  useEffect(() => {
+    if (!showWebGL) signalWebGL(false);
+  }, [showWebGL]);
+  const loop = frameLoop(shell, reduced);
   const initialShot = stage === "auth" ? layout.auth : stage === "event" ? layout.event : layout.artist;
   const cssVars = {
     "--sculpt-a": theme.a,
@@ -163,12 +197,12 @@ export default function WorldStage({
     >
       <div className="world-stage" aria-hidden="true">
         {showWebGL ? (
-          <SceneBoundary onFail={() => setLost(true)}>
+          <SceneBoundary onFail={() => setFailed(true)}>
             <Canvas
-              key={attempt}
+              key={shell.generation}
               className="world-canvas"
               dpr={[1, quality.dpr]}
-              frameloop={hidden ? "never" : reduced ? "demand" : "always"}
+              frameloop={loop}
               shadows={quality.shadows}
               camera={{ fov: initialShot.fov, near: 0.08, far: 90, position: initialShot.position }}
               gl={{
@@ -183,10 +217,15 @@ export default function WorldStage({
                 gl.outputColorSpace = THREE.SRGBColorSpace;
                 gl.toneMapping = THREE.ACESFilmicToneMapping;
                 gl.toneMappingExposure = 1.08;
-                gl.domElement.addEventListener("webglcontextlost", (event) => {
+                const canvas = gl.domElement;
+                canvas.addEventListener("webglcontextlost", (event) => {
                   event.preventDefault();
-                  setLost(true);
+                  dispatch({ type: "context-lost" });
                 });
+                canvas.addEventListener("webglcontextrestored", () => {
+                  dispatch({ type: "context-restored" });
+                });
+                signalWebGL(true);
               }}
             >
               <WorldScene stage={stage} theme={theme} portalStyle={portalStyle} layout={layout} reduced={reduced} quality={quality} anchors={anchors} />
@@ -204,17 +243,17 @@ export default function WorldStage({
       <p className="sr-only">{description}</p>
       <main id="world-main" className="world-main" tabIndex={-1}>
         <AnchorBindContext.Provider value={binds}>{children}</AnchorBindContext.Provider>
-        {!showWebGL && (
+        {(shell.contextLost || !showWebGL) && (
           <p className="world-gl-note" role="status">
-            {lost ? "The 3D view paused." : "A simpler view is showing because 3D isn't available."}{" "}
-            {lost && (
+            {shell.contextLost || failed ? "The 3D view paused." : "A simpler view is showing because 3D isn't available."}{" "}
+            {(shell.contextLost || failed) && (
               <button
                 type="button"
                 className="world-text-btn"
                 onClick={() => {
-                  setLost(false);
+                  setFailed(false);
                   setSupported(canUseWebGL());
-                  setAttempt((n) => n + 1);
+                  dispatch({ type: "retry" });
                 }}
               >
                 Try the 3D scene again

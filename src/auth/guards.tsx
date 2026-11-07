@@ -2,7 +2,7 @@ import { Navigate, Outlet, useLocation } from "react-router-dom";
 import { RaspberryMark } from "../components/RaspberryMark";
 import { useAuth } from "./AuthProvider";
 
-function Splash() {
+export function Splash() {
   return (
     <main className="splash" aria-live="polite" aria-busy="true">
       <RaspberryMark className="splash-mark" />

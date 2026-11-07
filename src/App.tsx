@@ -1,6 +1,6 @@
 import { lazy, Suspense } from "react";
 import { Navigate, Route, Routes } from "react-router-dom";
-import { GuestOnly, RequireAuth } from "./auth/guards";
+import { GuestOnly, RequireAuth, Splash } from "./auth/guards";
 import AppShell from "./app/AppShell";
 import Home from "./pages/Home";
 
@@ -19,7 +19,7 @@ const LocationHelp = lazy(() => import("./pages/LocationHelp"));
 
 export function AppRoutes() {
   return (
-    <Suspense fallback={<div className="splash" aria-busy="true" />}>
+    <Suspense fallback={<Splash />}>
       <Routes>
         <Route element={<GuestOnly />}>
           <Route path="/signin" element={<SignIn />} />

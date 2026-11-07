@@ -1,0 +1,222 @@
+name: iOS
+
+# Native compile and signed archive on pull requests.
+# The simulator job launches a Release build and requires a colored WKWebView snapshot
+# plus a WebGL-ready log. The signed archive does not upload. Build 1.0 (2) was uploaded
+# once from this branch. Later pushes do not upload again.
+on:
+  pull_request:
+    branches: [production]
+    paths:
+      - "ios/**"
+      - "capacitor.config.ts"
+      - "package.json"
+      - "package-lock.json"
+      - "src/**"
+      - "index.html"
+      - "public/**"
+      - "vite.config.ts"
+      - "scripts/ios/**"
+      - ".github/workflows/ios.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ios-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  simulator:
+    name: simulator-compile
+    runs-on: macos-26
+    environment: Prod
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - name: Configure the public web app
+        run: |
+          echo "VITE_FIREBASE_API_KEY=${{ vars.FIREBASE_API_KEY }}" >> "$GITHUB_ENV"
+          echo "VITE_FIREBASE_AUTH_DOMAIN=${{ vars.FIREBASE_AUTH_DOMAIN }}" >> "$GITHUB_ENV"
+          echo "VITE_FIREBASE_PROJECT_ID=new-raz-prod" >> "$GITHUB_ENV"
+          echo "VITE_FIREBASE_STORAGE_BUCKET=${{ vars.FIREBASE_STORAGE_BUCKET }}" >> "$GITHUB_ENV"
+          echo "VITE_FIREBASE_MESSAGING_SENDER_ID=${{ vars.FIREBASE_MESSAGING_SENDER_ID }}" >> "$GITHUB_ENV"
+          echo "VITE_FIREBASE_APP_ID=${{ vars.FIREBASE_APP_ID }}" >> "$GITHUB_ENV"
+      - name: Require the public web config
+        run: |
+          test -n "$VITE_FIREBASE_API_KEY" && test -n "$VITE_FIREBASE_AUTH_DOMAIN" && test -n "$VITE_FIREBASE_APP_ID"
+          echo "Public web config is present. Values are not printed."
+      - run: npm ci --prefer-offline --no-audit --no-fund
+      - run: npm run lint && npm test && npm run build
+      - name: Packaged document must not mark modules as CORS
+        run: |
+          if grep -q crossorigin dist/index.html; then
+            echo "dist/index.html still has crossorigin. The capacitor:// module load would stay blank."
+            exit 1
+          fi
+          grep -o 'src="[^"]*"' dist/index.html
+      - run: npx cap sync ios
+      - name: Install CocoaPods when the project uses them
+        working-directory: ios/App
+        run: |
+          if [ -f Podfile ]; then
+            pod install
+          else
+            echo "No Podfile. Capacitor iOS is using Swift Package Manager."
+          fi
+      - name: Compile an unsigned iOS Simulator build
+        id: compile
+        working-directory: ios/App
+        run: |
+          set -euo pipefail
+          DERIVED="$RUNNER_TEMP/simulator-derived"
+          if [ -d App.xcworkspace ]; then
+            PROJECT=(-workspace App.xcworkspace)
+          else
+            PROJECT=(-project App.xcodeproj)
+          fi
+          xcodebuild \
+            "${PROJECT[@]}" \
+            -scheme App \
+            -configuration Release \
+            -sdk iphonesimulator \
+            -destination "generic/platform=iOS Simulator" \
+            -derivedDataPath "$DERIVED" \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGN_IDENTITY="" \
+            build
+          APP="$(find "$DERIVED" -path '*iphonesimulator*' -name 'App.app' -print -quit)"
+          if [ -z "$APP" ]; then
+            echo "Simulator build did not produce App.app."
+            exit 1
+          fi
+          echo "app=$APP" >> "$GITHUB_OUTPUT"
+          echo "Compiled $APP"
+      - name: Launch the unsigned app in a simulator when one is installed
+        env:
+          APP: ${{ steps.compile.outputs.app }}
+        run: |
+          set -euo pipefail
+          python3 - <<'PY' > "$RUNNER_TEMP/iphone-udid"
+          import json, subprocess
+          raw = subprocess.check_output(["xcrun", "simctl", "list", "devices", "available", "-j"], text=True)
+          devices = json.loads(raw).get("devices", {})
+          for runtime, entries in devices.items():
+              if "iOS" not in runtime:
+                  continue
+              for device in entries:
+                  if device.get("isAvailable") and device.get("name", "").startswith("iPhone"):
+                      print(device["udid"])
+                      raise SystemExit
+          PY
+          UDID="$(tr -d '[:space:]' < "$RUNNER_TEMP/iphone-udid" || true)"
+          if [ -z "$UDID" ]; then
+            echo "No iPhone simulator runtime on this image. Compile succeeded. Launch was not run."
+            exit 0
+          fi
+          xcrun simctl boot "$UDID" || true
+          xcrun simctl bootstatus "$UDID" -b
+          xcrun simctl install "$UDID" "$APP"
+          xcrun simctl spawn "$UDID" log stream --style compact --predicate 'composedMessage CONTAINS "RAZZBERRY_"' > "$RUNNER_TEMP/webgl.log" 2>&1 &
+          LOGPID=$!
+          LAUNCH="$(xcrun simctl launch "$UDID" ca.razzberry.app)"
+          echo "$LAUNCH"
+          PID="${LAUNCH##* }"
+          sleep 50
+          xcrun simctl io "$UDID" screenshot "$RUNNER_TEMP/webgl-frame.png" || true
+          DATA="$(xcrun simctl get_app_container "$UDID" ca.razzberry.app data || true)"
+          if [ -n "$DATA" ]; then
+            FRAME="$(find "$DATA" -name razzberry-frame.png -print -quit || true)"
+            if [ -n "$FRAME" ]; then cp "$FRAME" "$RUNNER_TEMP/webview-frame.png"; fi
+          fi
+          kill "$LOGPID" >/dev/null 2>&1 || true
+          wait "$LOGPID" >/dev/null 2>&1 || true
+          echo "---- WKWebView log ----"
+          cat "$RUNNER_TEMP/webgl.log" || true
+          if ! ps -p "$PID" >/dev/null; then
+            echo "Native launch failed: the process exited. This is not a WebGL result."
+            exit 1
+          fi
+          echo "Native launch: process stayed up."
+          echo "### Simulator checks" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Release compile: passed in the previous step." >> "$GITHUB_STEP_SUMMARY"
+          echo "- Process launch: passed." >> "$GITHUB_STEP_SUMMARY"
+          if grep -q "RAZZBERRY_WEBGL_READY" "$RUNNER_TEMP/webgl.log"; then
+            echo "- WKWebView WebGL: context created (log signal)." >> "$GITHUB_STEP_SUMMARY"
+            echo "WKWebView reported RAZZBERRY_WEBGL_READY."
+          elif grep -q "RAZZBERRY_WEBGL_UNAVAILABLE" "$RUNNER_TEMP/webgl.log"; then
+            echo "- WKWebView WebGL: page reported WebGL unavailable." >> "$GITHUB_STEP_SUMMARY"
+            echo "WKWebView reported RAZZBERRY_WEBGL_UNAVAILABLE."
+            exit 1
+          else
+            echo "- WKWebView WebGL: signal missing. The page did not reach the scene." >> "$GITHUB_STEP_SUMMARY"
+            echo "No RAZZBERRY_WEBGL_READY log. A running process is not a rendered page."
+            exit 1
+          fi
+          if [ ! -f "$RUNNER_TEMP/webview-frame.png" ]; then
+            echo "WKWebView snapshot was not written."
+            exit 1
+          fi
+          python3 "$GITHUB_WORKSPACE/scripts/ios/webgl_frame.py" "$RUNNER_TEMP/webview-frame.png"
+          echo "- WKWebView snapshot color check: passed. This is not a physical iPhone." >> "$GITHUB_STEP_SUMMARY"
+          if [ -f "$RUNNER_TEMP/webgl-frame.png" ]; then
+            python3 "$GITHUB_WORKSPACE/scripts/ios/webgl_frame.py" "$RUNNER_TEMP/webgl-frame.png" || echo "Simulator framebuffer capture had no color. The WKWebView snapshot above is the rendered page."
+          fi
+          xcrun simctl terminate "$UDID" ca.razzberry.app || true
+      - name: Keep the simulator frame
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: simulator-webgl-frame
+          path: |
+            ${{ runner.temp }}/webgl-frame.png
+            ${{ runner.temp }}/webview-frame.png
+          if-no-files-found: ignore
+
+  archive:
+    name: signed-archive
+    runs-on: macos-26
+    environment: Prod
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - name: Configure the public web app
+        run: |
+          echo "VITE_FIREBASE_API_KEY=${{ vars.FIREBASE_API_KEY }}" >> "$GITHUB_ENV"
+          echo "VITE_FIREBASE_AUTH_DOMAIN=${{ vars.FIREBASE_AUTH_DOMAIN }}" >> "$GITHUB_ENV"
+          echo "VITE_FIREBASE_PROJECT_ID=new-raz-prod" >> "$GITHUB_ENV"
+          echo "VITE_FIREBASE_STORAGE_BUCKET=${{ vars.FIREBASE_STORAGE_BUCKET }}" >> "$GITHUB_ENV"
+          echo "VITE_FIREBASE_MESSAGING_SENDER_ID=${{ vars.FIREBASE_MESSAGING_SENDER_ID }}" >> "$GITHUB_ENV"
+          echo "VITE_FIREBASE_APP_ID=${{ vars.FIREBASE_APP_ID }}" >> "$GITHUB_ENV"
+      - name: Require the public web config
+        run: |
+          test -n "$VITE_FIREBASE_API_KEY" && test -n "$VITE_FIREBASE_AUTH_DOMAIN" && test -n "$VITE_FIREBASE_APP_ID"
+          echo "Public web config is present. Values are not printed."
+      - run: npm ci --prefer-offline --no-audit --no-fund
+      - run: npm run build
+      - run: npx cap sync ios
+      - name: Install CocoaPods when the project uses them
+        working-directory: ios/App
+        run: |
+          if [ -f Podfile ]; then
+            pod install
+          fi
+      - name: Archive with the Razzberry distribution profile
+        env:
+          IOS_DIST_P12: ${{ secrets.IOS_DIST_P12 }}
+          IOS_DIST_P12_PASSWORD: ${{ secrets.IOS_DIST_P12_PASSWORD }}
+          IOS_APPSTORE_PROFILE: ${{ secrets.IOS_APPSTORE_PROFILE }}
+          ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
+          ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
+          ASC_KEY_P8: ${{ secrets.ASC_KEY_P8 }}
+        run: bash scripts/ios/archive.sh

@@ -12,3 +12,12 @@ firestore-debug.log
 ui-debug.log
 .DS_Store
 *-debug.log
+
+# Capacitor iOS. The Xcode project is committed. Web assets and CocoaPods are produced in CI.
+ios/App/Pods/
+ios/App/build/
+ios/DerivedData/
+ios/App/App/public
+ios/App/output/
+*.xcuserstate
+xcuserdata/
