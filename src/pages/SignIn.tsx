@@ -4,8 +4,9 @@ import { authErrorMessage } from "../auth/errors";
 import { signIn } from "../auth/service";
 import { hasErrors, validateSignIn } from "../auth/validation";
 import { Field, FormAlert, PasswordField, Spinner } from "../components/Form";
-import { AuthShell } from "../components/Layout";
-import { spotlight } from "../lib/hooks";
+import { BrandLink, ThemeToggle } from "../components/Layout";
+import { THEMES } from "../world/theme";
+import WorldStage, { WorldHeader } from "../world/WorldStage";
 
 export default function SignIn() {
   const [email, setEmail] = useState("");
@@ -31,8 +32,9 @@ export default function SignIn() {
   }
 
   return (
-    <AuthShell>
-      <section className="auth-card glass" onPointerMove={spotlight} aria-labelledby="auth-title">
+    <WorldStage stage="auth" theme={THEMES.raspberry} portalStyle="quiet" description="Sign in. The sculpture behind the form is a live 3D room.">
+      <WorldHeader start={<BrandLink />} end={<ThemeToggle />} />
+      <section className="world-auth-sheet" aria-labelledby="auth-title">
         <h1 id="auth-title">Welcome back</h1>
         <p className="auth-sub">Sign in to your Razzberry account.</p>
         <form onSubmit={onSubmit} noValidate>
@@ -66,7 +68,11 @@ export default function SignIn() {
         <p className="auth-switch">
           New to Razzberry? <Link to="/signup">Create an account</Link>
         </p>
+        <p className="auth-demo">
+          <Link to="/demo">Try the UI demo</Link>
+        </p>
+        <p className="auth-demo-note">Sample artist NOVA. No account, and nothing is saved.</p>
       </section>
-    </AuthShell>
+    </WorldStage>
   );
 }

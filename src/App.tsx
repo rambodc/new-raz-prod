@@ -4,6 +4,9 @@ import { GuestOnly, RequireAuth } from "./auth/guards";
 import AppShell from "./app/AppShell";
 import Home from "./pages/Home";
 
+const DemoWorld = lazy(() => import("./pages/DemoWorld"));
+const FanWorld = lazy(() => import("./pages/FanWorld"));
+
 // Pages load on demand, so each screen only downloads what it needs.
 const SignIn = lazy(() => import("./pages/SignIn"));
 const SignUp = lazy(() => import("./pages/SignUp"));
@@ -23,10 +26,12 @@ export function AppRoutes() {
           <Route path="/signup" element={<SignUp />} />
           <Route path="/forgot-password" element={<ForgotPassword />} />
         </Route>
+        <Route path="/demo" element={<DemoWorld />} />
         <Route element={<RequireAuth />}>
+          <Route path="/" element={<FanWorld />} />
           <Route path="/welcome" element={<Welcome />} />
           <Route element={<AppShell />}>
-            <Route path="/" element={<Home />} />
+            <Route path="/numbers" element={<Home />} />
             <Route path="/artist/:id" element={<ArtistPage />} />
             <Route path="/admin" element={<Admin />} />
             <Route path="/location-help" element={<LocationHelp />} />

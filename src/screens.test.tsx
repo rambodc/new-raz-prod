@@ -82,7 +82,7 @@ afterEach(cleanup);
 
 describe("home", () => {
   it("shows Tonight first, then your numbers, with simple empty states", async () => {
-    renderAt("/");
+    renderAt("/numbers");
     expect(await screen.findByRole("heading", { level: 1, name: "Tonight" })).toBeTruthy();
     expect(await screen.findByText("No shows today.")).toBeTruthy();
     expect(screen.getByRole("heading", { name: "Your numbers" })).toBeTruthy();
@@ -92,7 +92,7 @@ describe("home", () => {
 
   it("lists tonight's shows with a big I'm here button when live, and a disabled one when not yet", async () => {
     h.api.listTonight.mockResolvedValue([show("live", -1), show("later", 4)]);
-    renderAt("/");
+    renderAt("/numbers");
     const cards = await screen.findAllByRole("listitem");
     const live = cards.find((c) => within(c).queryByText("Venue live"))!;
     const later = cards.find((c) => within(c).queryByText("Venue later"))!;
@@ -105,7 +105,7 @@ describe("home", () => {
   it("shows 'Checked in' instead of the button for a show the fan already checked in to", async () => {
     h.api.listTonight.mockResolvedValue([show("live", -1)]);
     h.api.listMyCheckIns.mockResolvedValue(new Set(["live"]));
-    renderAt("/");
+    renderAt("/numbers");
     expect(await screen.findByRole("status")).toBeTruthy();
     expect(screen.getByText("Checked in")).toBeTruthy();
     expect(screen.queryByRole("button", { name: "I'm here" })).toBeNull();
@@ -117,7 +117,7 @@ describe("home", () => {
       { artistId: "beta", artistName: "Beta", count: 1 },
     ]);
     h.api.getArtists.mockResolvedValue(new Map([["alpha", artist("alpha", "Alpha", { imageUrl: "https://img.test/alpha.jpg" })]]));
-    renderAt("/");
+    renderAt("/numbers");
     const alpha = await screen.findByRole("link", { name: /Alpha/ });
     expect(alpha.getAttribute("href")).toBe("/artist/alpha");
     expect(within(alpha).getByLabelText("3 shows").textContent).toBe("3");
@@ -130,7 +130,7 @@ describe("home", () => {
 
   it("offers the admin page only to admins", async () => {
     h.api.isAdmin.mockResolvedValue(true);
-    renderAt("/");
+    renderAt("/numbers");
     expect((await screen.findByRole("link", { name: "Admin" })).getAttribute("href")).toBe("/admin");
   });
 });
@@ -138,7 +138,7 @@ describe("home", () => {
 describe("check-in", () => {
   async function openLive() {
     h.api.listTonight.mockResolvedValue([show("live", -1)]);
-    renderAt("/");
+    renderAt("/numbers");
     return screen.findByRole("button", { name: "I'm here" });
   }
 

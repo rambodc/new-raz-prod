@@ -6,8 +6,10 @@ The **fan counter**. A fan checks in at a live show, and for every artist on the
 
 | Route | What it is |
 | --- | --- |
-| `/signin`, `/signup`, `/forgot-password` | Email and password accounts |
-| `/` | Home (signed in): **Tonight** (shows on now or later today, each with a big "I'm here") and **Your numbers** (one row per artist) |
+| `/signin`, `/signup`, `/forgot-password` | Email and password accounts, over the live 3D room. **Try the UI demo** opens the sample world with no account |
+| `/demo` | Sample artist **NOVA**. Follow, the portal, "I'm here", and edit preview all stay on this device. Nothing is saved. The count is marked sample |
+| `/` | Signed in: the 3D artist world for tonight's show. Enter the portal, then "I'm here" still uses the real location check-in |
+| `/numbers` | The list: **Tonight** and **Your numbers** |
 | `/artist/:id` | The artist's picture, name, total fans and past shows |
 | `/admin` | Admins only: add a show, edit its end time or delete it, upload one picture per artist |
 | `/location-help` | How to turn on location, shown if the browser says no |
@@ -39,7 +41,7 @@ On the admin page, **Add demo data** adds two real John Summit CTRL ESCAPE arena
 
 ### How it's built
 
-- **React 19 + TypeScript + Vite**, no UI library. Plain CSS in `src/styles`: the Aurora look (`app.css`, `screens.css`) for the app screens, and the sign-in styles (`base.css`, `components.css`, `pages.css`). The font (Outfit) is self-hosted. Dark by default with a light switch.
+- **React 19 + TypeScript + Vite**, no UI library. The room is a real WebGL scene (Three.js). Plain CSS in `src/styles` and `src/world/world.css`. The font (Outfit) is self-hosted. Dark by default with a light switch. The 3D room stays night-time either way.
 - **Firebase** (Auth, Firestore, Functions, Storage) is loaded on demand. All Firestore and Functions calls are in `src/data/api.ts`; the screens never import Firebase directly.
 - **Functions** live in `functions/`; the check-in rules are plain functions in `functions/lib/checkin.js` with tests.
 
@@ -62,6 +64,10 @@ npm test --prefix functions
 ```
 
 `.env.local` is git-ignored. Firebase web config is public client configuration; never put server credentials in `VITE_*` variables.
+
+## Native iOS
+
+The product to test right now is this web app. A later TestFlight build would wrap the same UI (a WKWebView or Capacitor shell) and needs a Mac with Xcode, an Apple Developer account, and signing certificates. None of that is in this repository, so no iOS project is created or signed here.
 
 ## Deployment (GitHub Actions, keyless Google Workload Identity Federation)
 

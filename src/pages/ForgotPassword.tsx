@@ -4,8 +4,9 @@ import { authErrorMessage } from "../auth/errors";
 import { sendPasswordReset } from "../auth/service";
 import { validateEmail } from "../auth/validation";
 import { Field, FormAlert, Spinner } from "../components/Form";
-import { AuthShell } from "../components/Layout";
-import { spotlight } from "../lib/hooks";
+import { BrandLink, ThemeToggle } from "../components/Layout";
+import { THEMES } from "../world/theme";
+import WorldStage, { WorldHeader } from "../world/WorldStage";
 
 export default function ForgotPassword() {
   const [email, setEmail] = useState("");
@@ -33,8 +34,9 @@ export default function ForgotPassword() {
   }
 
   return (
-    <AuthShell>
-      <section className="auth-card glass" onPointerMove={spotlight} aria-labelledby="auth-title">
+    <WorldStage stage="auth" theme={THEMES.raspberry} portalStyle="quiet" description="Reset your password. The sculpture behind the form is a live 3D room.">
+      <WorldHeader start={<BrandLink />} end={<ThemeToggle />} />
+      <section className="world-auth-sheet" aria-labelledby="auth-title">
         <h1 id="auth-title">Reset your password</h1>
         <p className="auth-sub">Enter your email and we'll send you a link to choose a new one.</p>
         {sent ? (
@@ -73,7 +75,11 @@ export default function ForgotPassword() {
             </p>
           </form>
         )}
+        <p className="auth-demo">
+          <Link to="/demo">Try the UI demo</Link>
+        </p>
+        <p className="auth-demo-note">Sample artist NOVA. No account, and nothing is saved.</p>
       </section>
-    </AuthShell>
+    </WorldStage>
   );
 }
