@@ -1,3 +1,4 @@
+import { Capacitor } from "@capacitor/core";
 import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from "react";
 import { currentUser, subscribeToAuth, type AuthUser } from "./service";
 
@@ -25,7 +26,8 @@ const AuthContext = createContext<AuthState>({
 
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<AuthUser | null>(null);
-  const [loading, setLoading] = useState(true);
+  // The native shell paints the guest room immediately. Waiting here left a splash over a black page.
+  const [loading, setLoading] = useState(() => !Capacitor.isNativePlatform());
   const [failed, setFailed] = useState(false);
   const [holdRedirect, setHoldRedirect] = useState(false);
 
@@ -49,11 +51,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         else unsubscribe = off;
       });
     };
-    // The public home page doesn't need auth to paint, so wait until the browser is idle there.
-    // Every other route needs the auth state right away.
+    // The website home page doesn't need auth to paint, so wait until the browser is idle there.
+    // The native shell and every other route need the auth listener immediately.
     let idle: number | undefined;
     let timer: number | undefined;
-    if (window.location.pathname === "/") {
+    if (!Capacitor.isNativePlatform() && window.location.pathname === "/") {
       if (typeof window.requestIdleCallback === "function") idle = window.requestIdleCallback(start, { timeout: 2000 });
       else timer = window.setTimeout(start, 600);
     } else {

@@ -18,10 +18,18 @@ class RazzberryBridgeViewController: CAPBridgeViewController, WKScriptMessageHan
               if (hook) hook.postMessage(String(body).slice(0, 400));
             } catch (e) {}
           }
+          ["error", "warn"].forEach(function (level) {
+            var original = console[level];
+            console[level] = function () {
+              var text = Array.prototype.join.call(arguments, " ");
+              send("js-" + level + ":" + text);
+              if (original) return original.apply(console, arguments);
+            };
+          });
           window.addEventListener("error", function (event) {
             var target = event.target;
-            var detail = target && target !== window && target.src ? "load " + target.src : (event.message || "error");
-            send("js-error:" + detail);
+            var detail = target && target !== window && target.src ? "load " + target.src : [event.message, event.filename, event.lineno].filter(Boolean).join(" ");
+            send("js-error:" + (detail || "error"));
           }, true);
           window.addEventListener("unhandledrejection", function (event) {
             var reason = event.reason;
@@ -40,9 +48,9 @@ class RazzberryBridgeViewController: CAPBridgeViewController, WKScriptMessageHan
     override func viewDidAppear(_ animated: Bool) {
         super.viewDidAppear(animated)
         logSurface("appear")
-        DispatchQueue.main.asyncAfter(deadline: .now() + 8) { [weak self] in
-            self?.logSurface("8s")
-            self?.captureFrame(reason: "8s")
+        DispatchQueue.main.asyncAfter(deadline: .now() + 36) { [weak self] in
+            self?.logSurface("36s")
+            self?.captureFrame(reason: "36s")
         }
     }
 
@@ -70,6 +78,7 @@ class RazzberryBridgeViewController: CAPBridgeViewController, WKScriptMessageHan
     }
 
     private func captureFrame(reason: String) {
+        if reason != "webgl-ready" && capturedReadyFrame { return }
         guard let webView, webView.bounds.width > 1, webView.bounds.height > 1 else {
             NSLog("RAZZBERRY_SNAPSHOT_FAILED %@ empty-webview", reason)
             return

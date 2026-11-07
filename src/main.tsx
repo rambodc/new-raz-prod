@@ -6,12 +6,13 @@ import { AppRoutes } from "./App";
 import { AuthProvider } from "./auth/AuthProvider";
 import { StartupBoundary } from "./boot/StartupBoundary";
 import { ThemeProvider } from "./components/ThemeProvider";
-import { markNativeShell, prepareNativeShell } from "./world/shellLifecycle";
+import { markNativeShell, prepareNativeShell, signalNative } from "./world/shellLifecycle";
 import "./styles/base.css";
 import "./styles/components.css";
 import "./styles/pages.css";
 
 markNativeShell();
+signalNative("ui-mounted");
 void prepareNativeShell();
 
 createRoot(document.getElementById("root")!).render(

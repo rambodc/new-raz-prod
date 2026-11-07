@@ -1,5 +1,6 @@
-import { getApp, getApps, initializeApp } from "firebase/app";
-import { getAuth } from "firebase/auth";
+import { Capacitor } from "@capacitor/core";
+import { getApp, getApps, initializeApp, type FirebaseApp } from "firebase/app";
+import { browserLocalPersistence, getAuth, initializeAuth, type Auth } from "firebase/auth";
 
 const env = import.meta.env;
 
@@ -14,7 +15,19 @@ const firebaseConfig = {
 };
 
 const app = getApps().length ? getApp() : initializeApp(firebaseConfig);
-export const auth = getAuth(app);
+
+function createAuth(firebaseApp: FirebaseApp): Auth {
+  // WKWebView can leave IndexedDB persistence unresolved, which keeps the shell on the splash.
+  // The website keeps the default Firebase persistence.
+  if (!Capacitor.isNativePlatform()) return getAuth(firebaseApp);
+  try {
+    return initializeAuth(firebaseApp, { persistence: browserLocalPersistence });
+  } catch {
+    return getAuth(firebaseApp);
+  }
+}
+
+export const auth = createAuth(app);
 
 /** Firestore and Functions are loaded on demand, so the sign-in pages stay small. */
 export async function getDb() {
