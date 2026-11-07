@@ -130,7 +130,10 @@ def main() -> None:
     token = asc_token(os.environ["ASC_KEY_ID"], os.environ["ASC_ISSUER_ID"], key_path)
     require_app(token, app_id)
     upload_ipa(ipa, os.environ["ASC_KEY_ID"], os.environ["ASC_ISSUER_ID"], key_path)
+    expected = os.environ.get("EXPECTED_BUILD_VERSION", "").strip()
     print("Upload request accepted. Waiting for processing. Uploaded does not mean testers can install.")
+    if expected:
+        print(f"This upload must become build {expected}. An older ready build is not this upload.")
     deadline = time.time() + 20 * 60
     last = None
     while time.time() < deadline:
@@ -141,9 +144,12 @@ def main() -> None:
             print("No build listed yet.")
             continue
         print(
-            f"Build {last['version']} processing={last['processingState']} "
+            f"Build {last['version']} id={last['id']} processing={last['processingState']} "
             f"internal={last['internalBuildState']} external={last['externalBuildState']}"
         )
+        if expected and str(last.get("version")) != expected:
+            print(f"Latest listed build is {last['version']}, still waiting for {expected}.")
+            continue
         if last["processingState"] in ("FAILED", "INVALID"):
             raise SystemExit("Apple finished processing with a failure. The build is not installable.")
         if last["internalBuildState"] in ("READY_FOR_BETA_TESTING", "IN_BETA_TESTING", "IN_EXPORT_COMPLIANCE_REVIEW"):

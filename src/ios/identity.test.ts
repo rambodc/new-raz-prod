@@ -64,8 +64,13 @@ describe("iOS workflow", () => {
     expect(archive).toContain("ca.razzberry.app");
     expect(archive).not.toContain("altool");
     expect(archive).not.toContain("iTMSTransporter");
-    expect(workflow).not.toContain("testflight-upload");
+    expect(workflow).toContain("needs: [simulator, archive]");
+    expect(workflow).toContain("upload_testflight.py");
+    expect(workflow).toContain('ASC_APP_ID: "6832082405"');
+    expect(workflow).toContain('EXPECTED_BUILD_VERSION: "2"');
     expect(workflow).not.toContain("altool");
+    expect(workflow).not.toContain("iTMSTransporter");
+    expect(read("../../ios/App/App.xcodeproj/project.pbxproj")).toContain("CURRENT_PROJECT_VERSION = 2;");
     const upload = read("../../.github/workflows/ios-testflight.yml");
     expect(upload).toContain("workflow_dispatch");
     expect(upload).toContain("6832082405");
