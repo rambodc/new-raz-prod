@@ -43,7 +43,14 @@ export function readQualityInput(): QualityInput {
 export function canUseWebGL(): boolean {
   try {
     const canvas = document.createElement("canvas");
-    return Boolean(canvas.getContext("webgl2") || canvas.getContext("webgl"));
+    canvas.width = 16;
+    canvas.height = 16;
+    (document.body ?? document.documentElement).appendChild(canvas);
+    const gl = canvas.getContext("webgl2", { failIfMajorPerformanceCaveat: false }) || canvas.getContext("webgl", { failIfMajorPerformanceCaveat: false });
+    const ok = Boolean(gl && !gl.isContextLost());
+    gl?.getExtension("WEBGL_lose_context")?.loseContext();
+    canvas.remove();
+    return ok;
   } catch {
     return false;
   }
