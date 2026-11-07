@@ -2,8 +2,8 @@ name: iOS
 
 # Native compile and signed archive on pull requests.
 # The simulator job launches a Release build and requires a colored WKWebView snapshot
-# plus a WebGL-ready log. The TestFlight job uploads only after that simulator job and the
-# signed archive both succeed. It does not submit for App Store review.
+# plus a WebGL-ready log. The signed archive does not upload. Build 1.0 (2) was uploaded
+# once from this branch. Later pushes do not upload again.
 on:
   pull_request:
     branches: [production]
@@ -220,31 +220,3 @@ jobs:
           ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
           ASC_KEY_P8: ${{ secrets.ASC_KEY_P8 }}
         run: bash scripts/ios/archive.sh
-      - name: Keep the signed IPA for the TestFlight job
-        uses: actions/upload-artifact@v4
-        with:
-          name: razzberry-ipa
-          path: ios/App/output/Razzberry.ipa
-          if-no-files-found: error
-
-  upload:
-    name: testflight-replacement
-    needs: [simulator, archive]
-    runs-on: macos-26
-    environment: Prod
-    timeout-minutes: 45
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/download-artifact@v4
-        with:
-          name: razzberry-ipa
-          path: ios/App/output
-      - name: Upload build 2 to TestFlight and poll processing
-        env:
-          ASC_APP_ID: "6832082405"
-          EXPECTED_BUILD_VERSION: "2"
-          ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
-          ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
-          ASC_KEY_P8: ${{ secrets.ASC_KEY_P8 }}
-          IPA_PATH: ios/App/output/Razzberry.ipa
-        run: python3 scripts/ios/upload_testflight.py

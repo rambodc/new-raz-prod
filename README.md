@@ -88,7 +88,7 @@ The packaged origin is `capacitor://localhost`. WKWebView will not use `https` a
 
 Email sign-in inside the shell uses that `capacitor://localhost` origin. Firebase Authentication authorized domains are unchanged. The sample demo does not need a signed-in account.
 
-What a green simulator job proves: the Release WKWebView on the GitHub simulator created a WebGL context and the snapshot of that web view had color. It does not prove a physical iPhone. Build 1 (`e258a974-0f7f-4a86-a77d-6ab064323df6`) is the blank TestFlight install and is not replaced by a green check.
+What a green simulator job proves: the Release WKWebView on the GitHub simulator created a WebGL context and the snapshot of that web view had color. It does not by itself prove a physical iPhone. Build 1 (`e258a974-0f7f-4a86-a77d-6ab064323df6`, version 1.0 (1)) is the blank install and is unchanged. The replacement is version 1.0 (2), build `6b4f0231-cd93-43b2-ac89-1b11c6eabf2e`: processing `VALID`, internal `IN_BETA_TESTING`, external `READY_FOR_BETA_SUBMISSION`. External review was not submitted.
 
 ## Deployment (GitHub Actions, keyless Google Workload Identity Federation)
 
