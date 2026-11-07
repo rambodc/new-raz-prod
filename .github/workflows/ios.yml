@@ -1,7 +1,6 @@
 name: iOS
 
-# Native shell only. This does not deploy hosting, functions, or rules, and it does not
-# upload to TestFlight. Upload stays off until the App Store Connect app record exists.
+# Native compile and signed archive. TestFlight upload is ios-testflight.yml and is manual.
 on:
   pull_request:
     branches: [production]
@@ -109,16 +108,46 @@ jobs:
           xcrun simctl boot "$UDID" || true
           xcrun simctl bootstatus "$UDID" -b
           xcrun simctl install "$UDID" "$APP"
+          xcrun simctl spawn "$UDID" log stream --style compact --predicate 'composedMessage CONTAINS "RAZZBERRY_WEBGL"' > "$RUNNER_TEMP/webgl.log" 2>&1 &
+          LOGPID=$!
           LAUNCH="$(xcrun simctl launch "$UDID" ca.razzberry.app)"
           echo "$LAUNCH"
           PID="${LAUNCH##* }"
-          sleep 8
+          sleep 25
+          xcrun simctl io "$UDID" screenshot "$RUNNER_TEMP/webgl-frame.png" || true
+          kill "$LOGPID" >/dev/null 2>&1 || true
+          wait "$LOGPID" >/dev/null 2>&1 || true
           if ! ps -p "$PID" >/dev/null; then
-            echo "The simulator process exited immediately. This is a shell launch check, not a device WebGL test."
+            echo "Native launch failed: the process exited. This is not a WebGL result."
             exit 1
           fi
+          echo "Native launch: process stayed up."
+          echo "### Simulator checks" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Native compile: passed in the previous step." >> "$GITHUB_STEP_SUMMARY"
+          echo "- Process launch: passed." >> "$GITHUB_STEP_SUMMARY"
+          if grep -q "RAZZBERRY_WEBGL_READY" "$RUNNER_TEMP/webgl.log"; then
+            echo "- WKWebView WebGL: context created (log signal)." >> "$GITHUB_STEP_SUMMARY"
+            echo "WKWebView reported RAZZBERRY_WEBGL_READY."
+          else
+            echo "- WKWebView WebGL: signal missing." >> "$GITHUB_STEP_SUMMARY"
+            echo "No RAZZBERRY_WEBGL_READY log. A running process is not a WebGL result."
+            cat "$RUNNER_TEMP/webgl.log" || true
+            exit 1
+          fi
+          if [ -f "$RUNNER_TEMP/webgl-frame.png" ]; then
+            python3 "$GITHUB_WORKSPACE/scripts/ios/webgl_frame.py" "$RUNNER_TEMP/webgl-frame.png"
+            echo "- Screenshot color check: passed. This is not a physical iPhone." >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "- Screenshot color check: not captured." >> "$GITHUB_STEP_SUMMARY"
+          fi
           xcrun simctl terminate "$UDID" ca.razzberry.app || true
-          echo "Simulator process stayed up. This does not validate a physical iPhone or TestFlight."
+      - name: Keep the simulator frame
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: simulator-webgl-frame
+          path: ${{ runner.temp }}/webgl-frame.png
+          if-no-files-found: ignore
 
   archive:
     name: signed-archive

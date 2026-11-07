@@ -63,6 +63,14 @@ export async function listenNativeAppState(onActive: (active: boolean) => void):
  * Edge-to-edge status bar and native keyboard resizing. No microphone, push, or payment setup.
  * Browser sessions return immediately.
  */
+/** Tells the iOS shell that this page did or did not create a WebGL context. Browsers ignore the native hook. */
+export function signalWebGL(ready: boolean) {
+  const message = ready ? "webgl-ready" : "webgl-unavailable";
+  console.info(ready ? "RAZZBERRY_WEBGL_READY" : "RAZZBERRY_WEBGL_UNAVAILABLE");
+  const hook = (window as Window & { webkit?: { messageHandlers?: { razzberry?: { postMessage: (body: string) => void } } } }).webkit?.messageHandlers?.razzberry;
+  hook?.postMessage(message);
+}
+
 export async function prepareNativeShell(): Promise<void> {
   if (!Capacitor.isNativePlatform()) return;
   const { StatusBar, Style } = await import("@capacitor/status-bar");

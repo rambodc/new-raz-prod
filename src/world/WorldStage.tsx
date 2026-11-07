@@ -4,7 +4,7 @@ import * as THREE from "three";
 import WorldScene, { type AnchorEls, type PortalStyle, type StageName } from "./WorldScene";
 import { layoutFor } from "./layout";
 import { canUseWebGL, prefersReducedMotion, qualityFor, readQualityInput } from "./quality";
-import { frameLoop, initialShell, listenNativeAppState, reduceShell, type ShellEvent, type ShellState } from "./shellLifecycle";
+import { frameLoop, initialShell, listenNativeAppState, reduceShell, signalWebGL, type ShellEvent, type ShellState } from "./shellLifecycle";
 import type { WorldTheme } from "./theme";
 import "./world.css";
 
@@ -178,6 +178,9 @@ export default function WorldStage({
     return { sign: assign("sign"), portalHit: assign("portalHit"), portalLabel: assign("portalLabel"), here: assign("here") };
   }, []);
   const showWebGL = supported && !failed;
+  useEffect(() => {
+    if (!showWebGL) signalWebGL(false);
+  }, [showWebGL]);
   const loop = frameLoop(shell, reduced);
   const initialShot = stage === "auth" ? layout.auth : stage === "event" ? layout.event : layout.artist;
   const cssVars = {
@@ -222,6 +225,7 @@ export default function WorldStage({
                 canvas.addEventListener("webglcontextrestored", () => {
                   dispatch({ type: "context-restored" });
                 });
+                signalWebGL(true);
               }}
             >
               <WorldScene stage={stage} theme={theme} portalStyle={portalStyle} layout={layout} reduced={reduced} quality={quality} anchors={anchors} />

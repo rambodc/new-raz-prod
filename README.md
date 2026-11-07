@@ -69,7 +69,9 @@ npm test --prefix functions
 
 The same web UI is packaged with Capacitor for iPhone. Bundle id **`ca.razzberry.app`** (Apple App ID `28F8KU46QW`, team `3CW838WDQC`). This is not `ca.uniquem.app`. The App Store profile name is `Razzberry App Store` (`78e76fb8-4d32-44f1-8693-3d63f9c8e263`). Push is enabled on that App ID so the profile matches (`aps-environment` = `production`). The app does not register for notifications and there is no push backend.
 
-`.github/workflows/ios.yml` runs on the GitHub-hosted `macos-26` runner. It compiles an unsigned simulator build and, using the repository secrets below, archives a signed IPA. It does **not** upload to TestFlight. The App Store Connect app record does not exist yet.
+`.github/workflows/ios.yml` runs on pull requests on the GitHub-hosted `macos-26` runner. It compiles an unsigned simulator build, checks that WKWebView logged a WebGL context and that the simulator frame is not blank, and archives a signed IPA. That archive job does not upload.
+
+`.github/workflows/ios-testflight.yml` is manual. It uploads a TestFlight build only when dispatched with confirmation `testflight-only` and numeric app id `6832082405`. It does not submit the build for App Store review. The App Store Connect record is https://appstoreconnect.apple.com/apps/6832082405/distribution (SKU `razzberry-ios`, English Canada). An upload accepted by Apple is still processing until the build's internal state is ready for beta. That is not the same as a tester being able to install it.
 
 Repository Actions secrets, already created for this repo. Values stay in GitHub; they are not in the source tree:
 

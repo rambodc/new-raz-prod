@@ -60,5 +60,11 @@ describe("iOS workflow", () => {
     expect(archive).not.toContain("altool");
     expect(archive).not.toContain("iTMSTransporter");
     expect(workflow).not.toContain("altool");
+    const upload = read("../../.github/workflows/ios-testflight.yml");
+    expect(upload).toContain("workflow_dispatch");
+    expect(upload).toContain("6832082405");
+    expect(upload).toContain("testflight-only");
+    expect(upload).not.toContain("submit-for-review");
+    expect(read("../../scripts/ios/upload_testflight.py").toLowerCase()).toContain("does not submit for review");
   });
 });

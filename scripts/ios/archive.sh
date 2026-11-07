@@ -120,17 +120,22 @@ cat > "$WORK/ExportOptions.plist" <<EOF
 EOF
 
 cd "$ROOT/ios/App"
+if [ -d App.xcworkspace ]; then
+  XCODE_FILE=(-workspace App.xcworkspace)
+else
+  XCODE_FILE=(-project App.xcodeproj)
+fi
+echo "Archiving with ${XCODE_FILE[*]}"
 xcodebuild \
-  -workspace App.xcworkspace \
+  "${XCODE_FILE[@]}" \
   -scheme App \
   -configuration Release \
   -destination "generic/platform=iOS" \
   -archivePath "$WORK/Razzberry.xcarchive" \
   CODE_SIGN_STYLE=Manual \
-  "CODE_SIGN_IDENTITY=$IDENTITY" \
-  "CODE_SIGN_IDENTITY[sdk=iphoneos*]=$IDENTITY" \
   DEVELOPMENT_TEAM="$TEAM" \
-  PROVISIONING_PROFILE_SPECIFIER="$PROFILE_NAME" \
+  "CODE_SIGN_IDENTITY=$IDENTITY" \
+  "PROVISIONING_PROFILE_SPECIFIER=$PROFILE_NAME" \
   CODE_SIGN_ENTITLEMENTS=App/App.entitlements \
   archive
 
@@ -145,5 +150,7 @@ if [ -z "$IPA" ]; then
   echo "Export did not produce an ipa."
   exit 1
 fi
-echo "Archived and exported $(basename "$IPA")."
-echo "Not uploaded. App Store Connect has no Razzberry app record yet, so TestFlight upload stays off."
+mkdir -p "$ROOT/ios/App/output"
+cp "$IPA" "$ROOT/ios/App/output/Razzberry.ipa"
+echo "Archived and exported $ROOT/ios/App/output/Razzberry.ipa"
+echo "This script does not upload. TestFlight upload is the separate manual workflow."
