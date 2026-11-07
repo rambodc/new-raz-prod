@@ -5,8 +5,9 @@ import { authErrorMessage } from "../auth/errors";
 import { signUp } from "../auth/service";
 import { MIN_PASSWORD_LENGTH, hasErrors, validateSignUp } from "../auth/validation";
 import { Field, FormAlert, PasswordField, Spinner } from "../components/Form";
-import { AuthShell } from "../components/Layout";
-import { spotlight } from "../lib/hooks";
+import { BrandLink, ThemeToggle } from "../components/Layout";
+import { THEMES } from "../world/theme";
+import WorldStage, { WorldHeader } from "../world/WorldStage";
 
 type Errors = { name?: string; email?: string; password?: string; confirm?: string };
 
@@ -40,8 +41,9 @@ export default function SignUp() {
   }
 
   return (
-    <AuthShell>
-      <section className="auth-card glass" onPointerMove={spotlight} aria-labelledby="auth-title">
+    <WorldStage stage="auth" theme={THEMES.raspberry} portalStyle="quiet" description="Create an account. The sculpture behind the form is a live 3D room.">
+      <WorldHeader start={<BrandLink />} end={<ThemeToggle />} />
+      <section className="world-auth-sheet" aria-labelledby="auth-title">
         <h1 id="auth-title">Create your account</h1>
         <p className="auth-sub">Join Razzberry in early access.</p>
         <form onSubmit={onSubmit} noValidate>
@@ -82,7 +84,11 @@ export default function SignUp() {
         <p className="auth-switch">
           Already have an account? <Link to="/signin">Sign in</Link>
         </p>
+        <p className="auth-demo">
+          <Link to="/demo">Try the UI demo</Link>
+        </p>
+        <p className="auth-demo-note">Sample artist NOVA. No account, and nothing is saved.</p>
       </section>
-    </AuthShell>
+    </WorldStage>
   );
 }

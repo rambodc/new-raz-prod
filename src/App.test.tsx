@@ -143,13 +143,13 @@ describe("route guards", () => {
     expect(await screen.findByRole("heading", { level: 1, name: /welcome, ada/i })).toBeTruthy();
     expect(screen.getByText("ada@example.com")).toBeTruthy();
     expect(screen.getByRole("button", { name: /sign out/i })).toBeTruthy();
-    expect(screen.getByRole("link", { name: /back to tonight/i }).getAttribute("href")).toBe("/");
+    expect(screen.getByRole("link", { name: /back to your world/i }).getAttribute("href")).toBe("/");
   });
 
   it("sends signed-in users from the auth pages to the home screen", async () => {
     state.user = { uid: "u1", displayName: "Ada Lovelace", email: "ada@example.com" };
     renderAt("/signin");
-    expect(await screen.findByRole("heading", { level: 1, name: "Tonight" })).toBeTruthy();
+    expect(await screen.findByRole("heading", { level: 1, name: "Your world" })).toBeTruthy();
   });
 
   it("shows a friendly 404", async () => {

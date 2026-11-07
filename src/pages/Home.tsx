@@ -23,6 +23,9 @@ export default function Home() {
 
   return (
     <div className="home">
+      <Link to="/" className="back-link">
+        ← World
+      </Link>
       <section aria-labelledby="tonight-title">
         <h1 id="tonight-title" className="lb-display">
           Tonight
