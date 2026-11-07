@@ -29,9 +29,8 @@ const config: CapacitorConfig = {
     },
   },
   server: {
-    // https://localhost is the WKWebView origin. Firebase Auth will reject sign-in
-    // until `localhost` is an authorized domain. The sample demo does not need that.
-    iosScheme: "https",
+    // WKWebView refuses https as a custom scheme and Capacitor would silently reset it.
+    // The packaged origin is capacitor://localhost. The sample demo does not need Firebase Auth.
     androidScheme: "https",
     hostname: "localhost",
   },

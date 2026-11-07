@@ -14,6 +14,7 @@
     <style>
       html { background: #07060a; }
       html[data-theme="light"] { background: #fbf6f9; }
+      html, body, #root { min-height: 100%; }
     </style>
     <script>
       // Apply the saved theme before first paint (dark unless the visitor chose light).
@@ -27,8 +28,60 @@
     </script>
   </head>
   <body>
-    <div id="root"></div>
+    <div id="root">
+      <main id="boot" style="min-height:100vh;display:grid;place-items:center;padding:24px;background:#07060a;color:#f6f1f5;font-family:-apple-system,BlinkMacSystemFont,sans-serif;text-align:center">
+        <div style="max-width:28rem">
+          <p style="font-size:1.25rem;margin:0 0 8px">Starting Razzberry…</p>
+          <p style="margin:0;color:#b3aab9">The room is loading.</p>
+        </div>
+      </main>
+    </div>
     <noscript>Razzberry needs JavaScript to run.</noscript>
+    <script>
+      // Runs before the bundle. If the module never loads, this replaces the black page with a readable retry.
+      (function () {
+        function show(title, detail) {
+          var root = document.getElementById("root");
+          if (!root || !document.getElementById("boot")) return;
+          root.textContent = "";
+          var main = document.createElement("main");
+          main.setAttribute("style", "min-height:100vh;display:grid;place-items:center;padding:24px;background:#1a1020;color:#f6f1f5;font-family:-apple-system,BlinkMacSystemFont,sans-serif;text-align:center");
+          var box = document.createElement("div");
+          box.setAttribute("style", "max-width:28rem");
+          var heading = document.createElement("p");
+          heading.setAttribute("style", "font-size:1.35rem;margin:0 0 8px");
+          heading.textContent = title;
+          var copy = document.createElement("p");
+          copy.setAttribute("style", "margin:0 0 16px;color:#b3aab9");
+          copy.textContent = detail;
+          var button = document.createElement("button");
+          button.type = "button";
+          button.textContent = "Try again";
+          button.setAttribute("style", "min-height:44px;padding:0 18px;border:0;border-radius:999px;background:#e11d63;color:#fff;font-size:1rem");
+          button.addEventListener("click", function () { location.reload(); });
+          box.appendChild(heading);
+          box.appendChild(copy);
+          box.appendChild(button);
+          main.appendChild(box);
+          root.appendChild(main);
+        }
+        window.addEventListener("error", function (event) {
+          if (!document.getElementById("boot")) return;
+          var target = event.target;
+          var detail = target && target !== window && target.src ? "Could not load " + target.src : (event.message || "The page hit an error.");
+          show("Razzberry couldn't start", detail);
+        }, true);
+        window.addEventListener("unhandledrejection", function (event) {
+          if (!document.getElementById("boot")) return;
+          var reason = event.reason;
+          var detail = reason && reason.message ? reason.message : "A startup task failed.";
+          show("Razzberry couldn't start", detail);
+        });
+        window.setTimeout(function () {
+          if (document.getElementById("boot")) show("Razzberry didn't finish starting", "The screen stayed on the startup message. Try again.");
+        }, 12000);
+      })();
+    </script>
     <script type="module" src="/src/main.tsx"></script>
   </body>
 </html>

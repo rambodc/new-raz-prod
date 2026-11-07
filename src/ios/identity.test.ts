@@ -12,6 +12,7 @@ describe("iOS identity", () => {
     const config = read("../../capacitor.config.ts");
     const project = read("../../ios/App/App.xcodeproj/project.pbxproj");
     expect(config).toContain(`export const IOS_BUNDLE_ID = "${IOS_BUNDLE_ID}"`);
+    expect(config).not.toContain('iosScheme: "https"');
     expect(config).not.toMatch(/appId:\s*["']ca\.uniquem\.app["']/);
     expect(project).toContain(`PRODUCT_BUNDLE_IDENTIFIER = ${IOS_BUNDLE_ID};`);
     expect(project).not.toContain(FORBIDDEN_BUNDLE);
@@ -37,6 +38,8 @@ describe("iOS identity", () => {
     const plist = read("../../ios/App/App/Info.plist");
     expect(plist).toContain("CFBundleDisplayName");
     expect(plist).toContain("Razzberry");
+    expect(plist).not.toContain("UISceneStoryboardFile");
+    expect(plist).not.toContain("UIMainStoryboardFile");
     expect(plist).toContain("NSLocationWhenInUseUsageDescription");
     expect(plist).not.toContain("NSMicrophoneUsageDescription");
     expect(plist).not.toContain(FORBIDDEN_BUNDLE);
@@ -49,6 +52,8 @@ describe("iOS workflow", () => {
 
   it("compiles on the hosted macOS 26 runner and archives with the six named secrets", () => {
     expect(workflow).toContain("runs-on: macos-26");
+    expect(workflow).toContain("environment: Prod");
+    expect(workflow).toContain("-configuration Release");
     expect(workflow).toContain("CODE_SIGNING_ALLOWED=NO");
     for (const name of ["IOS_DIST_P12", "IOS_DIST_P12_PASSWORD", "IOS_APPSTORE_PROFILE", "ASC_KEY_ID", "ASC_ISSUER_ID", "ASC_KEY_P8"]) {
       expect(workflow).toContain(name);

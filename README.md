@@ -69,7 +69,7 @@ npm test --prefix functions
 
 The same web UI is packaged with Capacitor for iPhone. Bundle id **`ca.razzberry.app`** (Apple App ID `28F8KU46QW`, team `3CW838WDQC`). This is not `ca.uniquem.app`. The App Store profile name is `Razzberry App Store` (`78e76fb8-4d32-44f1-8693-3d63f9c8e263`). Push is enabled on that App ID so the profile matches (`aps-environment` = `production`). The app does not register for notifications and there is no push backend.
 
-`.github/workflows/ios.yml` runs on pull requests on the GitHub-hosted `macos-26` runner. It compiles an unsigned simulator build, checks that WKWebView logged a WebGL context and that the simulator frame is not blank, and archives a signed IPA. That archive job does not upload.
+`.github/workflows/ios.yml` runs on pull requests on the GitHub-hosted `macos-26` runner, in the Prod environment so the public Firebase web config is baked in. It compiles an unsigned Release simulator build, launches it, and requires both a `RAZZBERRY_WEBGL_READY` log and a colored WKWebView snapshot. It also archives a signed IPA. That archive job does not upload.
 
 `.github/workflows/ios-testflight.yml` is manual. It uploads a TestFlight build only when dispatched with confirmation `testflight-only` and numeric app id `6832082405`. It does not submit the build for App Store review. The App Store Connect record is https://appstoreconnect.apple.com/apps/6832082405/distribution (SKU `razzberry-ios`, English Canada). An upload accepted by Apple is still processing until the build's internal state is ready for beta. That is not the same as a tester being able to install it.
 
@@ -84,9 +84,11 @@ Repository Actions secrets, already created for this repo. Values stay in GitHub
 | `ASC_ISSUER_ID` | App Store Connect issuer id |
 | `ASC_KEY_P8` | App Store Connect API private key |
 
-Real sign-in inside the shell uses origin `https://localhost`. That host still has to be added to Firebase Authentication authorized domains before email sign-in works in the WebView. The sample demo does not need it.
+The packaged origin is `capacitor://localhost`. WKWebView will not use `https` as a custom scheme, so an `iosScheme` of `https` was ignored. Vite's `crossorigin` attribute made the module script a CORS request, and Capacitor's scheme handler does not send `Access-Control-Allow-Origin` for the bundled files. The module never ran, which left the black page background. The build strips that attribute. If startup still fails, the page shows the error and a Try again button instead of staying blank.
 
-What a green iOS workflow proves: the Xcode project compiles for the simulator, and a signed archive exports. It does not prove a physical iPhone, TestFlight install, or on-device WebGL. Upload stays off until the App Store Connect record exists.
+Email sign-in inside the shell uses that `capacitor://localhost` origin. Firebase Authentication authorized domains are unchanged. The sample demo does not need a signed-in account.
+
+What a green simulator job proves: the Release WKWebView on the GitHub simulator created a WebGL context and the snapshot of that web view had color. It does not prove a physical iPhone. Build 1 (`e258a974-0f7f-4a86-a77d-6ab064323df6`) is the blank TestFlight install and is not replaced by a green check.
 
 ## Deployment (GitHub Actions, keyless Google Workload Identity Federation)
 

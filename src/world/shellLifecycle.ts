@@ -59,10 +59,12 @@ export async function listenNativeAppState(onActive: (active: boolean) => void):
   };
 }
 
-/**
- * Edge-to-edge status bar and native keyboard resizing. No microphone, push, or payment setup.
- * Browser sessions return immediately.
- */
+/** Marks the document before the first React paint so WKWebView layout rules apply immediately. */
+export function markNativeShell(): void {
+  if (typeof document === "undefined" || !Capacitor.isNativePlatform()) return;
+  document.documentElement.classList.add("native-shell");
+}
+
 /** Tells the iOS shell that this page did or did not create a WebGL context. Browsers ignore the native hook. */
 export function signalWebGL(ready: boolean) {
   const message = ready ? "webgl-ready" : "webgl-unavailable";
@@ -71,7 +73,12 @@ export function signalWebGL(ready: boolean) {
   hook?.postMessage(message);
 }
 
+/**
+ * Edge-to-edge status bar and native keyboard resizing. No microphone, push, or payment setup.
+ * Browser sessions return immediately.
+ */
 export async function prepareNativeShell(): Promise<void> {
+  markNativeShell();
   if (!Capacitor.isNativePlatform()) return;
   const { StatusBar, Style } = await import("@capacitor/status-bar");
   await StatusBar.setOverlaysWebView({ overlay: true });
