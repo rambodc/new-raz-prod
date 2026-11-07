@@ -65,9 +65,26 @@ npm test --prefix functions
 
 `.env.local` is git-ignored. Firebase web config is public client configuration; never put server credentials in `VITE_*` variables.
 
-## Native iOS
+## iOS shell
 
-The product to test right now is this web app. A later TestFlight build would wrap the same UI (a WKWebView or Capacitor shell) and needs a Mac with Xcode, an Apple Developer account, and signing certificates. None of that is in this repository, so no iOS project is created or signed here.
+The same web UI is packaged with Capacitor for iPhone. Bundle id **`ca.razzberry.app`** (Apple App ID `28F8KU46QW`, team `3CW838WDQC`). This is not `ca.uniquem.app`. The App Store profile name is `Razzberry App Store` (`78e76fb8-4d32-44f1-8693-3d63f9c8e263`). Push is enabled on that App ID so the profile matches (`aps-environment` = `production`). The app does not register for notifications and there is no push backend.
+
+`.github/workflows/ios.yml` runs on the GitHub-hosted `macos-26` runner. It compiles an unsigned simulator build and, using the repository secrets below, archives a signed IPA. It does **not** upload to TestFlight. The App Store Connect app record does not exist yet.
+
+Repository Actions secrets, already created for this repo. Values stay in GitHub; they are not in the source tree:
+
+| Secret | What it is |
+| --- | --- |
+| `IOS_DIST_P12` | Apple Distribution certificate, base64 |
+| `IOS_DIST_P12_PASSWORD` | Password for that certificate |
+| `IOS_APPSTORE_PROFILE` | Razzberry App Store profile, base64 |
+| `ASC_KEY_ID` | App Store Connect API key id |
+| `ASC_ISSUER_ID` | App Store Connect issuer id |
+| `ASC_KEY_P8` | App Store Connect API private key |
+
+Real sign-in inside the shell uses origin `https://localhost`. That host still has to be added to Firebase Authentication authorized domains before email sign-in works in the WebView. The sample demo does not need it.
+
+What a green iOS workflow proves: the Xcode project compiles for the simulator, and a signed archive exports. It does not prove a physical iPhone, TestFlight install, or on-device WebGL. Upload stays off until the App Store Connect record exists.
 
 ## Deployment (GitHub Actions, keyless Google Workload Identity Federation)
 

@@ -1,0 +1,158 @@
+name: iOS
+
+# Native shell only. This does not deploy hosting, functions, or rules, and it does not
+# upload to TestFlight. Upload stays off until the App Store Connect app record exists.
+on:
+  pull_request:
+    branches: [production]
+    paths:
+      - "ios/**"
+      - "capacitor.config.ts"
+      - "package.json"
+      - "package-lock.json"
+      - "src/**"
+      - "index.html"
+      - "public/**"
+      - "vite.config.ts"
+      - "scripts/ios/**"
+      - ".github/workflows/ios.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ios-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  simulator:
+    name: simulator-compile
+    runs-on: macos-26
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - name: Configure the public web app
+        run: |
+          echo "VITE_FIREBASE_API_KEY=${{ vars.FIREBASE_API_KEY }}" >> "$GITHUB_ENV"
+          echo "VITE_FIREBASE_AUTH_DOMAIN=${{ vars.FIREBASE_AUTH_DOMAIN }}" >> "$GITHUB_ENV"
+          echo "VITE_FIREBASE_PROJECT_ID=new-raz-prod" >> "$GITHUB_ENV"
+          echo "VITE_FIREBASE_STORAGE_BUCKET=${{ vars.FIREBASE_STORAGE_BUCKET }}" >> "$GITHUB_ENV"
+          echo "VITE_FIREBASE_MESSAGING_SENDER_ID=${{ vars.FIREBASE_MESSAGING_SENDER_ID }}" >> "$GITHUB_ENV"
+          echo "VITE_FIREBASE_APP_ID=${{ vars.FIREBASE_APP_ID }}" >> "$GITHUB_ENV"
+      - run: npm ci --prefer-offline --no-audit --no-fund
+      - run: npm run lint && npm test && npm run build
+      - run: npx cap sync ios
+      - name: Install CocoaPods when the project uses them
+        working-directory: ios/App
+        run: |
+          if [ -f Podfile ]; then
+            pod install
+          else
+            echo "No Podfile. Capacitor iOS is using Swift Package Manager."
+          fi
+      - name: Compile an unsigned iOS Simulator build
+        id: compile
+        working-directory: ios/App
+        run: |
+          set -euo pipefail
+          DERIVED="$RUNNER_TEMP/simulator-derived"
+          if [ -d App.xcworkspace ]; then
+            PROJECT=(-workspace App.xcworkspace)
+          else
+            PROJECT=(-project App.xcodeproj)
+          fi
+          xcodebuild \
+            "${PROJECT[@]}" \
+            -scheme App \
+            -configuration Debug \
+            -sdk iphonesimulator \
+            -destination "generic/platform=iOS Simulator" \
+            -derivedDataPath "$DERIVED" \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGN_IDENTITY="" \
+            build
+          APP="$(find "$DERIVED" -path '*iphonesimulator*' -name 'App.app' -print -quit)"
+          if [ -z "$APP" ]; then
+            echo "Simulator build did not produce App.app."
+            exit 1
+          fi
+          echo "app=$APP" >> "$GITHUB_OUTPUT"
+          echo "Compiled $APP"
+      - name: Launch the unsigned app in a simulator when one is installed
+        env:
+          APP: ${{ steps.compile.outputs.app }}
+        run: |
+          set -euo pipefail
+          python3 - <<'PY' > "$RUNNER_TEMP/iphone-udid"
+          import json, subprocess
+          raw = subprocess.check_output(["xcrun", "simctl", "list", "devices", "available", "-j"], text=True)
+          devices = json.loads(raw).get("devices", {})
+          for runtime, entries in devices.items():
+              if "iOS" not in runtime:
+                  continue
+              for device in entries:
+                  if device.get("isAvailable") and device.get("name", "").startswith("iPhone"):
+                      print(device["udid"])
+                      raise SystemExit
+          PY
+          UDID="$(tr -d '[:space:]' < "$RUNNER_TEMP/iphone-udid" || true)"
+          if [ -z "$UDID" ]; then
+            echo "No iPhone simulator runtime on this image. Compile succeeded. Launch was not run."
+            exit 0
+          fi
+          xcrun simctl boot "$UDID" || true
+          xcrun simctl bootstatus "$UDID" -b
+          xcrun simctl install "$UDID" "$APP"
+          LAUNCH="$(xcrun simctl launch "$UDID" ca.razzberry.app)"
+          echo "$LAUNCH"
+          PID="${LAUNCH##* }"
+          sleep 8
+          if ! ps -p "$PID" >/dev/null; then
+            echo "The simulator process exited immediately. This is a shell launch check, not a device WebGL test."
+            exit 1
+          fi
+          xcrun simctl terminate "$UDID" ca.razzberry.app || true
+          echo "Simulator process stayed up. This does not validate a physical iPhone or TestFlight."
+
+  archive:
+    name: signed-archive
+    runs-on: macos-26
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - name: Configure the public web app
+        run: |
+          echo "VITE_FIREBASE_API_KEY=${{ vars.FIREBASE_API_KEY }}" >> "$GITHUB_ENV"
+          echo "VITE_FIREBASE_AUTH_DOMAIN=${{ vars.FIREBASE_AUTH_DOMAIN }}" >> "$GITHUB_ENV"
+          echo "VITE_FIREBASE_PROJECT_ID=new-raz-prod" >> "$GITHUB_ENV"
+          echo "VITE_FIREBASE_STORAGE_BUCKET=${{ vars.FIREBASE_STORAGE_BUCKET }}" >> "$GITHUB_ENV"
+          echo "VITE_FIREBASE_MESSAGING_SENDER_ID=${{ vars.FIREBASE_MESSAGING_SENDER_ID }}" >> "$GITHUB_ENV"
+          echo "VITE_FIREBASE_APP_ID=${{ vars.FIREBASE_APP_ID }}" >> "$GITHUB_ENV"
+      - run: npm ci --prefer-offline --no-audit --no-fund
+      - run: npm run build
+      - run: npx cap sync ios
+      - name: Install CocoaPods when the project uses them
+        working-directory: ios/App
+        run: |
+          if [ -f Podfile ]; then
+            pod install
+          fi
+      - name: Archive with the Razzberry distribution profile
+        env:
+          IOS_DIST_P12: ${{ secrets.IOS_DIST_P12 }}
+          IOS_DIST_P12_PASSWORD: ${{ secrets.IOS_DIST_P12_PASSWORD }}
+          IOS_APPSTORE_PROFILE: ${{ secrets.IOS_APPSTORE_PROFILE }}
+          ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
+          ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
+          ASC_KEY_P8: ${{ secrets.ASC_KEY_P8 }}
+        run: bash scripts/ios/archive.sh
