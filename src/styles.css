@@ -190,6 +190,7 @@ button:disabled { cursor: default; }
 
 .preview {
   display: none;
+  min-width: 0;
   width: min(480px, 44vw);
   border-left: 1px solid rgba(255, 255, 255, 0.08);
   background: #100c12;
@@ -198,6 +199,7 @@ button:disabled { cursor: default; }
 .event-page {
   position: relative;
   flex: 1;
+  min-width: 0;
   min-height: 0;
   overflow: auto;
   background: var(--deep, #2a0c2e);
@@ -205,7 +207,7 @@ button:disabled { cursor: default; }
 }
 
 .event-atmosphere, .event-glow, .event-blob { position: absolute; pointer-events: none; }
-.event-atmosphere { inset: 0; }
+.event-atmosphere { inset: 0; overflow: hidden; }
 .event-glow {
   inset: 0;
   background:
@@ -235,7 +237,7 @@ button:disabled { cursor: default; }
   background: rgba(16, 12, 18, 0.88);
 }
 .event-kicker { margin: 0 0 6px; font-size: 0.78rem; letter-spacing: 0.08em; text-transform: uppercase; color: rgba(246, 241, 244, 0.62); }
-.event-sheet h2 { margin: 0; font-size: clamp(2rem, 5vw, 3.2rem); line-height: 0.95; letter-spacing: -0.045em; }
+.event-sheet h2 { margin: 0; max-width: 100%; font-size: clamp(2rem, 5vw, 3.2rem); line-height: 0.95; letter-spacing: -0.045em; overflow-wrap: anywhere; }
 .event-when, .event-venue, .event-description { margin: 10px 0 0; }
 .event-venue { font-weight: 600; }
 .event-description { max-width: 36rem; color: rgba(246, 241, 244, 0.88); line-height: 1.45; }
@@ -243,10 +245,15 @@ button:disabled { cursor: default; }
 .event-sheet h3 { margin: 0 0 8px; font-size: 0.95rem; }
 .event-counts, .event-note { margin: 0; color: rgba(246, 241, 244, 0.72); font-size: 0.88rem; line-height: 1.4; }
 .event-guests ul { list-style: none; margin: 10px 0; padding: 0; }
-.event-guests li { display: grid; grid-template-columns: 1.4fr 1fr auto; gap: 8px; padding: 8px 0; border-top: 1px solid rgba(255, 255, 255, 0.08); }
+.event-guests li { display: grid; grid-template-columns: minmax(0, 1.4fr) minmax(0, 1fr) auto; gap: 8px; padding: 8px 0; border-top: 1px solid rgba(255, 255, 255, 0.08); }
+.event-guests li span,
+.event-description,
+.event-note { overflow-wrap: anywhere; }
 .event-invite pre {
   margin: 0;
+  max-width: 100%;
   white-space: pre-wrap;
+  overflow-wrap: anywhere;
   font: inherit;
   line-height: 1.45;
   color: rgba(246, 241, 244, 0.9);

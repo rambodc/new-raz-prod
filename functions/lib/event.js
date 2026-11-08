@@ -227,6 +227,52 @@ export function restoreEvent(input) {
   );
 }
 
+const ABBREVIATIONS = new Set(["mr", "mrs", "ms", "dr", "st", "jr", "sr", "mt", "ft"]);
+
+/** Keep a quoted value whole. Otherwise drop a trailing approval instruction, not a comma inside a real name. */
+export function cleanCommandValue(raw) {
+  const text = plain(String(raw ?? ""), 240);
+  const quoted = text.match(/^["“]([\s\S]+)["”]\s*[.!?]?$/);
+  if (quoted) return quoted[1].trim();
+  if (/\s+or\s+/i.test(text) || text.includes("?")) return "";
+  let value = text
+    .replace(/,\s*(?:but\b|and then\b|and let\b|and please\b|please\b|let me\b|so (?:i|you|that)\b)[\s\S]*$/i, "")
+    .replace(/\s+but\s+let\s+me\b[\s\S]*$/i, "")
+    .trim();
+  const ending = value.match(/^(.*\S)([.!?])$/);
+  if (ending) {
+    const word = ending[1].match(/([A-Za-z]+)$/);
+    if (!word || !ABBREVIATIONS.has(word[1].toLowerCase())) value = ending[1];
+  }
+  return value.trim();
+}
+
+/**
+ * Fields a person actually named in one sentence, for merging onto a proposal.
+ * A date-only sentence does not invent a title or venue.
+ * @returns {{ patch: EventPatch, mentioned: { mentioned: boolean, date: string, invalid: boolean, ambiguous: boolean } }}
+ */
+export function fieldsFromAsk(raw, today) {
+  const text = plain(String(raw ?? ""), 500);
+  const mentioned = resolveMentionedDate(text, today);
+  /** @type {EventPatch} */
+  const patch = {};
+  if (mentioned.date) patch.date = mentioned.date;
+  const time = text.match(/(?<!\d-)(?:\bat\s+)?([01]?\d|2[0-3]):([0-5]\d)\b/i);
+  if (time) patch.time = `${time[1].padStart(2, "0")}:${time[2]}`;
+  const body = text.replace(/^(?:please\s+)?(?:(?:can|could|would)\s+(?:we|you)\s+)?(?:do|make|set(?:\s+up)?|put|plan)\s+/i, "");
+  const compound = body.match(/^(.+?)\s+at\s+(.+?)\s+on\s+\S/i);
+  if (compound) {
+    const title = plain(compound[1], 80);
+    const venue = plain(compound[2], 80);
+    const clockOnly = /^\d{1,2}:\d{2}$/;
+    const aside = /\b(?:but|please|let me)\b/i;
+    if (title && !clockOnly.test(title) && !aside.test(title)) patch.title = title;
+    if (venue && !clockOnly.test(venue) && !aside.test(venue)) patch.venue = venue;
+  }
+  return { patch: sanitizeEventPatch(patch), mentioned };
+}
+
 /** @param {unknown} raw @returns {{ event?: EventPatch, guests?: { add: { name: string, group: string, status: GuestStatus }[], set: { name: string, group?: string, status?: GuestStatus }[] } } | null} */
 export function proposalFromText(raw) {
   const text = plain(String(raw ?? ""), 240);
@@ -242,7 +288,9 @@ export function proposalFromText(raw) {
   for (const [pattern, key] of rules) {
     const match = text.match(pattern);
     if (!match) continue;
-    const event = sanitizeEventPatch({ [key]: match[1] });
+    const value = key === "date" || key === "time" ? match[1] : cleanCommandValue(match[1]);
+    if (!value) return null;
+    const event = sanitizeEventPatch({ [key]: value });
     return event[key] ? { event } : null;
   }
   const style = text.match(/^(?:use|set) the (calm|editorial|soft) look$/i);

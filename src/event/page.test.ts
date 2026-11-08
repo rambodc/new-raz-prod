@@ -28,6 +28,11 @@ describe("one demo event", () => {
     expect(invitationPreview(withGuest)).toContain("The Hall");
     expect(invitationPreview(withGuest)).toContain("21:00 · America/Edmonton");
     expect(proposalFromText("Set the title to Late Friday")?.event?.title).toBe("Late Friday");
+    expect(proposalFromText("Set the title to Late Friday.")?.event?.title).toBe("Late Friday");
+    expect(proposalFromText('Set the title to "Late Friday."')?.event?.title).toBe("Late Friday.");
+    expect(proposalFromText("Set the venue to The Blue Room, but let me approve it first.")?.event?.venue).toBe("The Blue Room");
+    expect(proposalFromText('Set the venue to "The Blue Room, but let me approve it first."')?.event?.venue).toBe("The Blue Room, but let me approve it first.");
+    expect(proposalFromText("Set the venue to The Blue Room or The Hall")).toBeNull();
     expect(proposalFromText("Set the date to 2026-02-31")).toBeNull();
     expect(proposalFromText("Set Sample Leo to no")?.guests?.set?.[0]).toMatchObject({ name: "Sample Leo", status: "no" });
     const restored = restoreEvent({ title: "Kept", guests: [{ name: "Sample Ada", group: "Friends", status: "yes" }] });
