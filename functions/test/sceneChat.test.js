@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { DEFAULT_SCENE, mergeScene, sanitizeScene } from "../lib/sceneSchema.js";
-import { DEFAULT_MODEL, handleSceneChat } from "../lib/sceneChat.js";
+import { DEFAULT_MODEL, handleSceneChat, LIMITS } from "../lib/sceneChat.js";
 
 const origin = "http://localhost:5173";
 
@@ -79,20 +79,24 @@ test("a real Grok JSON reply is returned and the provider key stays out of the r
   assert.equal(JSON.stringify(result.body).includes("test-key"), false);
 });
 
-test("the ninth message in a window is refused before Grok is called", async () => {
+test("the per-browser cap refuses the next message and says when it resets", async () => {
   const store = new Map();
   let calls = 0;
   const fetchImpl = async () => {
     calls += 1;
     return { ok: true, status: 200, json: async () => ({ choices: [{ message: { content: '{"reply":"Ok.","scene":{}}' } }] }) };
   };
-  for (let i = 0; i < 8; i += 1) {
+  for (let i = 0; i < LIMITS.perIp; i += 1) {
     const result = await call({ store, now: 5_000 + i, fetchImpl, ip: "198.51.100.8" });
     assert.equal(result.status, 200);
   }
-  const blocked = await call({ store, now: 5_100, fetchImpl, ip: "198.51.100.8" });
+  const blocked = await call({ store, now: 5_000 + LIMITS.perIp, fetchImpl, ip: "198.51.100.8" });
   assert.equal(blocked.status, 429);
-  assert.equal(calls, 8);
+  assert.equal(blocked.body.scope, "browser");
+  assert.equal(calls, LIMITS.perIp);
+  assert.match(blocked.body.message, /20 messages every 10 minutes/);
+  const later = await call({ store, now: 5_000 + LIMITS.perIpWindowMs + 1, fetchImpl, ip: "198.51.100.8" });
+  assert.equal(later.status, 200);
 });
 
 test("the default model is the verified non-reasoning id", () => {
@@ -135,6 +139,76 @@ test("another website origin is refused", async () => {
   const result = await call({ origin: "https://evil.example" });
   assert.equal(result.status, 403);
   assert.equal(result.allowOrigin, null);
+});
+
+test("the shared cap is per server copy and names the reset", async () => {
+  const store = new Map();
+  store.set("global", Array.from({ length: LIMITS.global }, () => 10_000));
+  let calls = 0;
+  const blocked = await call({
+    store,
+    now: 10_000,
+    ip: "198.51.100.9",
+    fetchImpl: async () => {
+      calls += 1;
+      return { ok: true, status: 200, json: async () => ({ choices: [{ message: { content: '{"reply":"Ok.","scene":{}}' } }] }) };
+    },
+  });
+  assert.equal(blocked.status, 429);
+  assert.equal(blocked.body.scope, "instance");
+  assert.match(blocked.body.message, /200 messages an hour/);
+  assert.equal(blocked.body.retryAfterSec > 0, true);
+  assert.equal(calls, 0);
+});
+
+test("an event proposal is allowlisted and guest facts are context only", async () => {
+  let sent = "";
+  const result = await call({
+    body: {
+      messages: [{ role: "user", content: "Update the night." }],
+      event: { title: "Friday night", venue: "<script>", style: "nope" },
+      guestFacts: "yes: 1. Sample Ada.",
+    },
+    fetchImpl: async (_url, init) => {
+      sent = init.body;
+      return {
+        ok: true,
+        status: 200,
+        json: async () => ({
+          choices: [
+            {
+              message: {
+                content: JSON.stringify({
+                  reply: "Proposal ready.",
+                  scene: {},
+                  card: {
+                    type: "approval",
+                    id: "e1",
+                    prompt: "Update the page?",
+                    proposal: {
+                      event: { title: "Late <b>Friday</b>", venue: "The Hall", style: "expression(alert(1))", date: "2026-02-31" },
+                      guests: { add: [{ name: "Sample Jo", group: "Friends", status: "yes" }, { name: "<>", status: "owner" }] },
+                      scene: { name: "<style>body{}</style>" },
+                    },
+                  },
+                }),
+              },
+            },
+          ],
+        }),
+      };
+    },
+  });
+  assert.equal(result.status, 200);
+  assert.match(sent, /Sample Ada/);
+  assert.equal(result.body.card.proposal.event.title.includes("<"), false);
+  assert.equal(result.body.card.proposal.event.title.includes("Friday"), true);
+  assert.equal(result.body.card.proposal.event.venue, "The Hall");
+  assert.equal(result.body.card.proposal.event.date, undefined);
+  assert.equal(result.body.card.proposal.event.style, undefined);
+  assert.equal(result.body.card.proposal.guests.add.length, 1);
+  assert.equal(result.body.card.proposal.guests.add[0].name, "Sample Jo");
+  assert.equal(result.body.card.proposal.scene.name.includes("<"), false);
 });
 
 test("local dev ports can call chat and a missing key is still an error", async () => {

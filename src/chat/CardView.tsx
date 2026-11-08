@@ -1,6 +1,9 @@
 import { useState } from "react";
-import { DRAFT_FIELDS } from "../../functions/lib/cards.js";
+import { DRAFT_FIELDS, GUEST_FIELDS } from "../../functions/lib/cards.js";
+import type { EventPage } from "../event/types";
 import type { Draft, TranscriptItem } from "./flow";
+
+const FIELD_SPECS = { ...DRAFT_FIELDS, ...GUEST_FIELDS };
 
 const STATUS_LABEL: Record<string, string> = {
   answered: "Answered",
@@ -39,8 +42,8 @@ export function CardView({
       {card.type === "form" ? <DraftForm cardId={card.id} fields={card.fields} closed={closed} onForm={onForm} /> : null}
       {card.type === "approval" ? (
         <div className="proposal">
-          <ProposalSummary scene={card.proposal.scene} draft={card.proposal.draft} />
-          <p className="card-note">Accept changes this browser session only. Nothing is published or saved.</p>
+          <ProposalSummary scene={card.proposal.scene} draft={card.proposal.draft} event={card.proposal.event} guests={card.proposal.guests} />
+          <p className="card-note">Accept updates this browser tab only. Nothing is published, booked, or sent.</p>
           <div className="decision">
             <button type="button" className="primary" disabled={closed} onClick={() => onApproval(card.id, true)}>
               Accept
@@ -80,9 +83,9 @@ function DraftForm({
       }}
     >
       {fields.map((key) => {
-        const spec = DRAFT_FIELDS[key as keyof typeof DRAFT_FIELDS];
+        const spec = FIELD_SPECS[key as keyof typeof FIELD_SPECS];
         if (!spec) return null;
-        const long = key === "details";
+        const long = key === "details" || key === "description";
         return (
           <label key={key}>
             {spec.label}
@@ -102,9 +105,29 @@ function DraftForm({
   );
 }
 
-function ProposalSummary({ scene, draft }: { scene: { colors?: { glow?: string; base?: string; deep?: string }; name?: string; line?: string }; draft: Partial<Draft> }) {
+function ProposalSummary({
+  scene,
+  draft,
+  event,
+  guests,
+}: {
+  scene: { colors?: { glow?: string; base?: string; deep?: string }; name?: string; line?: string };
+  draft: Partial<Draft>;
+  event: Partial<EventPage>;
+  guests: { add: { name: string; group: string; status: string }[]; set: { name: string; group?: string; status?: string }[] };
+}) {
   const colors = [scene.colors?.deep, scene.colors?.base, scene.colors?.glow].filter(Boolean) as string[];
   const notes = (Object.keys(DRAFT_FIELDS) as (keyof Draft)[]).filter((key) => draft[key]);
+  const eventNotes = [
+    ["Title", event.title],
+    ["Description", event.description],
+    ["Date", event.date],
+    ["Time", event.time],
+    ["Time zone", event.timeZone],
+    ["Venue", event.venue],
+    ["Artist", event.artistName],
+    ["Look", event.style],
+  ].filter((entry): entry is [string, string] => Boolean(entry[1]));
   return (
     <div className="proposal-body">
       {colors.length ? (
@@ -116,6 +139,23 @@ function ProposalSummary({ scene, draft }: { scene: { colors?: { glow?: string; 
       ) : null}
       {scene.name ? <p>{scene.name}</p> : null}
       {scene.line ? <p>{scene.line}</p> : null}
+      {eventNotes.map(([label, value]) => (
+        <p key={label}>
+          {label}: {value}
+        </p>
+      ))}
+      {guests.add.map((guest) => (
+        <p key={`add-${guest.name}`}>
+          Add {guest.name} · {guest.group} · {guest.status}
+        </p>
+      ))}
+      {guests.set.map((guest) => (
+        <p key={`set-${guest.name}`}>
+          Update {guest.name}
+          {guest.status ? ` · ${guest.status}` : ""}
+          {guest.group ? ` · ${guest.group}` : ""}
+        </p>
+      ))}
       {notes.map((key) => (
         <p key={key}>
           {DRAFT_FIELDS[key].label}: {draft[key]}

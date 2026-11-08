@@ -1,6 +1,8 @@
 import { sanitizeCard, validateDraftInput } from "../../functions/lib/cards.js";
+import { applyEventPatch, applyGuestOps, sanitizeEventPatch } from "../../functions/lib/event.js";
 import { mergeScene } from "../scene/schema";
 import type { Scene, ScenePatch } from "../scene/types";
+import type { EventPage } from "../event/types";
 
 export type Draft = { artistName: string; eventTitle: string; vibe: string; details: string };
 export type CardStatus = "pending" | "answered" | "submitted" | "applied" | "rejected" | "superseded";
@@ -8,7 +10,13 @@ export type ChoiceOption = { id: string; label: string };
 export type Card =
   | { type: "choice"; id: string; prompt: string; options: ChoiceOption[]; status: CardStatus; answer?: string }
   | { type: "form"; id: string; prompt: string; fields: string[]; status: CardStatus }
-  | { type: "approval"; id: string; prompt: string; proposal: { scene: ScenePatch; draft: Partial<Draft> }; status: CardStatus };
+  | {
+      type: "approval";
+      id: string;
+      prompt: string;
+      proposal: { scene: ScenePatch; draft: Partial<Draft>; event: Partial<EventPage>; guests: { add: { name: string; group: string; status: string }[]; set: { name: string; group?: string; status?: string }[] } };
+      status: CardStatus;
+    };
 
 export type TranscriptItem =
   | { kind: "text"; role: "user" | "assistant" | "error"; text: string }
@@ -59,12 +67,47 @@ export function submitForm(
   cardId: string,
   values: Record<string, string>,
   draft: Draft,
-): { items: TranscriptItem[]; text: string; draft: Draft } | { error: string; errors?: Record<string, string> } {
+): { items: TranscriptItem[]; text: string; draft: Draft; skipModel?: boolean } | { error: string; errors?: Record<string, string> } {
   const item = items.find((entry) => entry.kind === "card" && entry.card.id === cardId);
   if (!item || item.kind !== "card" || item.card.type !== "form") return { error: "That form is gone." };
   if (item.card.status !== "pending") return { error: "Already submitted." };
-  const checked = validateDraftInput(item.card.fields, values) as { ok: boolean; errors: Record<string, string>; clean: Partial<Draft> };
+  const checked = validateDraftInput(item.card.fields, values) as { ok: boolean; errors: Record<string, string>; clean: Record<string, string> };
   if (!checked.ok) return { error: "Check the form.", errors: checked.errors };
+  if (item.card.fields.includes("guestName")) {
+    const name = checked.clean.guestName;
+    const proposal = {
+      type: "approval",
+      id: `${cardId}-add`,
+      prompt: `Add ${name} to the sample list?`,
+      proposal: { guests: { add: [{ name, group: checked.clean.guestGroup || "General", status: checked.clean.guestStatus || "invited" }] } },
+    };
+    const approval = asCard(proposal);
+    const text = `Add guest ${name}`;
+    const submitted = [...replaceCard(items, cardId, "submitted"), { kind: "text" as const, role: "user" as const, text }];
+    return { items: approval ? appendAssistant(submitted, "Accept to add them. Nothing is invited.", approval) : submitted, text, draft, skipModel: true };
+  }
+  const eventFields = ["eventTitle", "description", "date", "time", "timeZone", "venue"];
+  if (item.card.fields.some((key) => eventFields.includes(key))) {
+    const event = sanitizeEventPatch({
+      title: checked.clean.eventTitle,
+      description: checked.clean.description,
+      date: checked.clean.date,
+      time: checked.clean.time,
+      timeZone: checked.clean.timeZone,
+      venue: checked.clean.venue,
+      artistName: checked.clean.artistName,
+    });
+    if (!Object.keys(event).length) return { error: "Nothing on that form can go on the page." };
+    const approval = asCard({
+      type: "approval",
+      id: `${cardId}-apply`,
+      prompt: "Update the event page?",
+      proposal: { event, draft: { eventTitle: event.title, artistName: event.artistName } },
+    });
+    const text = "Update the event page";
+    const submitted = [...replaceCard(items, cardId, "submitted"), { kind: "text" as const, role: "user" as const, text }];
+    return { items: approval ? appendAssistant(submitted, "Accept to put this on the page. Nothing is sent.", approval) : submitted, text, draft, skipModel: true };
+  }
   const text = Object.entries(checked.clean)
     .map(([key, value]) => `${key}: ${value}`)
     .join("\n");
@@ -81,17 +124,20 @@ export function decideApproval(
   accept: boolean,
   scene: Scene,
   draft: Draft,
-): { items: TranscriptItem[]; scene: Scene; draft: Draft; changed: boolean } | { error: string } {
+  event: EventPage,
+): { items: TranscriptItem[]; scene: Scene; draft: Draft; event: EventPage; changed: boolean } | { error: string } {
   const item = items.find((entry) => entry.kind === "card" && entry.card.id === cardId);
   if (!item || item.kind !== "card" || item.card.type !== "approval") return { error: "That proposal is gone." };
   if (item.card.status !== "pending") return { error: "Already decided." };
   if (!accept) {
-    return { items: replaceCard(items, cardId, "rejected"), scene, draft, changed: false };
+    return { items: replaceCard(items, cardId, "rejected"), scene, draft, event, changed: false };
   }
+  const proposed = item.card.proposal;
   return {
     items: [...replaceCard(items, cardId, "applied"), { kind: "text", role: "user", text: "Accepted" }],
-    scene: mergeScene(scene, item.card.proposal.scene),
-    draft: { ...draft, ...item.card.proposal.draft },
+    scene: mergeScene(scene, proposed.scene),
+    draft: { ...draft, ...proposed.draft },
+    event: applyGuestOps(applyEventPatch(event, proposed.event), proposed.guests),
     changed: true,
   };
 }
