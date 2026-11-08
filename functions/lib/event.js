@@ -59,6 +59,108 @@ export function validTime(value) {
   return clock(value);
 }
 
+const MONTHS = {
+  january: 1, jan: 1, february: 2, feb: 2, march: 3, mar: 3, april: 4, apr: 4,
+  may: 5, june: 6, jun: 6, july: 7, jul: 7, august: 8, aug: 8, september: 9, sept: 9, sep: 9,
+  october: 10, oct: 10, november: 11, nov: 11, december: 12, dec: 12,
+};
+const MONTH_NAME = "january|february|march|april|june|july|august|september|october|november|december|jan|feb|mar|apr|may|jun|jul|aug|sept|sep|oct|nov|dec";
+
+function isoDate(year, month, date) {
+  if (!Number.isInteger(year) || !Number.isInteger(month) || !Number.isInteger(date)) return "";
+  return day(`${year}-${String(month).padStart(2, "0")}-${String(date).padStart(2, "0")}`);
+}
+
+function upcomingDate(month, date, today) {
+  const [year, todayMonth, todayDate] = today.split("-").map(Number);
+  for (let add = 0; add < 8; add += 1) {
+    const nextYear = year + add;
+    const text = isoDate(nextYear, month, date);
+    if (!text) continue;
+    if (nextYear > year || month > todayMonth || (month === todayMonth && date >= todayDate)) return text;
+  }
+  return "";
+}
+
+function ianaZone(zone) {
+  if (typeof zone !== "string") return "";
+  const text = zone.trim();
+  if (!text || text.length > 64 || /[^A-Za-z0-9_+\-/]/.test(text)) return "";
+  try {
+    Intl.DateTimeFormat("en-US", { timeZone: text }).format(0);
+    return text;
+  } catch {
+    return "";
+  }
+}
+
+/** Event zone wins. Otherwise a zone named in the message. Otherwise UTC. */
+export function zoneForEvent(eventZone, message) {
+  const onEvent = ianaZone(eventZone);
+  if (onEvent) return onEvent;
+  const named = String(message || "").match(/\b([A-Za-z]{2,}(?:\/[A-Za-z_]{2,})+|UTC|GMT)\b/);
+  if (named) return ianaZone(named[1] === "GMT" ? "UTC" : named[1]) || "UTC";
+  return "UTC";
+}
+
+/** Calendar day for a server timestamp in an IANA zone. */
+export function calendarToday(nowMs, timeZone) {
+  const when = new Date(nowMs);
+  if (Number.isNaN(when.getTime())) return "";
+  const parts = new Intl.DateTimeFormat("en-US", {
+    timeZone: zoneForEvent(timeZone, ""),
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).formatToParts(when);
+  const read = (type) => parts.find((part) => part.type === type)?.value || "";
+  return day(`${read("year")}-${read("month")}-${read("day")}`);
+}
+
+/**
+ * A date the person actually named.
+ * A written year is kept, including a past year. A month and day with no year becomes the next day on or after today.
+ * @returns {{ mentioned: boolean, date: string, invalid: boolean, ambiguous: boolean }}
+ */
+export function resolveMentionedDate(raw, today) {
+  const text = plain(String(raw ?? ""), 500).toLowerCase();
+  const none = { mentioned: false, date: "", invalid: false, ambiguous: false };
+  if (!day(today)) return none;
+  const iso = text.match(/\b(\d{4})-(\d{2})-(\d{2})\b/);
+  if (iso) {
+    const date = isoDate(Number(iso[1]), Number(iso[2]), Number(iso[3]));
+    return date ? { mentioned: true, date, invalid: false, ambiguous: false } : { mentioned: true, date: "", invalid: true, ambiguous: false };
+  }
+  const monthFirst = text.match(new RegExp(`(?:^|[^a-z])(${MONTH_NAME})\\s*(\\d{1,2})(?:st|nd|rd|th)?(?:\\s*,?\\s*(\\d{4}))?(?!\\d)`, "i"));
+  const dayFirst = text.match(new RegExp(`(?<!\\d)(\\d{1,2})(?:st|nd|rd|th)?\\s+(?:of\\s+)?(${MONTH_NAME})(?:\\s*,?\\s*(\\d{4}))?(?!\\d)`, "i"));
+  const named = monthFirst || dayFirst;
+  if (named) {
+    const month = MONTHS[monthFirst ? named[1] : named[2]];
+    const dateNumber = Number(monthFirst ? named[2] : named[1]);
+    const year = named[3] ? Number(named[3]) : 0;
+    if (!month) return none;
+    if (year) {
+      const date = isoDate(year, month, dateNumber);
+      return date ? { mentioned: true, date, invalid: false, ambiguous: false } : { mentioned: true, date: "", invalid: true, ambiguous: false };
+    }
+    const date = upcomingDate(month, dateNumber, today);
+    return date ? { mentioned: true, date, invalid: false, ambiguous: false } : { mentioned: true, date: "", invalid: true, ambiguous: false };
+  }
+  const numeric = text.match(/\b(\d{1,2})[/-](\d{1,2})[/-](\d{4})\b/);
+  if (numeric) {
+    const first = Number(numeric[1]);
+    const second = Number(numeric[2]);
+    const year = Number(numeric[3]);
+    if (first <= 12 && second <= 12) return { mentioned: true, date: "", invalid: false, ambiguous: true };
+    const month = first > 12 ? second : first;
+    const dateNumber = first > 12 ? first : second;
+    if (month > 12 || dateNumber > 31) return { mentioned: true, date: "", invalid: true, ambiguous: false };
+    const date = isoDate(year, month, dateNumber);
+    return date ? { mentioned: true, date, invalid: false, ambiguous: false } : { mentioned: true, date: "", invalid: true, ambiguous: false };
+  }
+  return none;
+}
+
 /** @param {unknown} input @returns {EventPatch} */
 export function sanitizeEventPatch(input) {
   const patch = {};
