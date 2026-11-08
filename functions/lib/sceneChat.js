@@ -1,5 +1,5 @@
 import { sanitizeCard, sanitizeDraft } from "./cards.js";
-import { calendarToday, resolveMentionedDate, sanitizeEventPatch, zoneForEvent } from "./event.js";
+import { calendarToday, fieldsFromAsk, sanitizeEventPatch, zoneForEvent } from "./event.js";
 import { DEFAULT_SCENE, mergeScene, sanitizeScene } from "./sceneSchema.js";
 
 /** Caps for one Cloud Function instance. A second instance has its own counters. */
@@ -231,29 +231,45 @@ function claimsDone(reply) {
   return /\b(updated|applied|saved)\b/.test(text) || /\bi(?:'ve| have) (?:set|changed)\b/.test(text);
 }
 
+function proposalId(seed) {
+  let hash = 0;
+  for (const char of seed) hash = (hash * 33 + char.charCodeAt(0)) >>> 0;
+  return `e${hash.toString(36)}`.slice(0, 40);
+}
+
+function acceptLine(event) {
+  const bits = [event?.title, event?.venue, event?.date, event?.time].filter(Boolean);
+  return bits.length
+    ? `Accept to put ${bits.join(", ")} on this page. Nothing changes until you do.`
+    : "Accept the proposal to change this page. Nothing changes until you do.";
+}
+
 function settleReply({ reply, card, patch, asked, today }) {
-  const mentioned = resolveMentionedDate(asked, today);
-  if (mentioned.mentioned && card?.type === "approval") {
-    if (mentioned.date) {
-      card.proposal.event.date = mentioned.date;
-      card.prompt = card.prompt.replace(/\d{4}-\d{2}-\d{2}/g, mentioned.date);
-    } else delete card.proposal.event.date;
+  const askedFields = fieldsFromAsk(asked, today);
+  const mentioned = askedFields.mentioned;
+  if (mentioned.invalid && (card?.type === "choice" || card?.type === "form")) card = null;
+  if (card?.type === "approval") {
+    const event = { ...card.proposal.event, ...askedFields.patch };
+    if (mentioned.invalid || mentioned.ambiguous) delete event.date;
+    else if (mentioned.date) event.date = mentioned.date;
+    card.proposal.event = event;
+    if (mentioned.date) card.prompt = card.prompt.replace(/\d{4}-\d{2}-\d{2}/g, mentioned.date);
     if (!proposalHasWork(card)) card = null;
-  }
-  if (mentioned.date && !card) {
+  } else if (Object.keys(askedFields.patch).length) {
     card = sanitizeCard({
       type: "approval",
-      id: `d-${mentioned.date}`,
-      prompt: `Use ${mentioned.date} on the event page?`,
-      proposal: { event: { date: mentioned.date } },
+      id: proposalId(`${asked}|${JSON.stringify(askedFields.patch)}`),
+      prompt: "Apply this to the event page?",
+      proposal: { event: askedFields.patch },
     });
   }
-  if (mentioned.invalid) reply = "That isn't a real calendar day. Say the month and day again, and include the year if it is in the past.";
-  else if (mentioned.ambiguous) reply = "Which date do you mean? Use a month name, and include the year if it is in the past.";
+  if (mentioned.invalid) {
+    reply = Object.keys(askedFields.patch).length
+      ? "That date isn't a real calendar day, so it was left off. Accept to apply the other details. Nothing changes until you do."
+      : "That isn't a real calendar day. Say the month and day again, and include the year if it is in the past.";
+  } else if (mentioned.ambiguous) reply = "Which date do you mean? Use a month name, and include the year if it is in the past.";
   else if (claimsDone(reply) && !(card == null && Object.keys(patch).length > 0)) {
-    reply = card
-      ? "Accept the proposal to change this page. Nothing is changed until you do."
-      : "Nothing was changed. Tell me what to edit and I'll ask you to accept it.";
+    reply = card?.type === "approval" ? acceptLine(card.proposal.event) : "Nothing was changed. Tell me what to edit and I'll ask you to accept it.";
   }
   return { reply, card };
 }

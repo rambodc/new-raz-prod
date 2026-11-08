@@ -85,6 +85,22 @@ describe("choice, form, and approval", () => {
     expect(decideApproval(accepted.items, "ev-apply", true, accepted.scene, accepted.draft, accepted.event)).toMatchObject({ error: "Already decided." });
   });
 
+  it("keeps a multi-field event proposal unapplied until accept", () => {
+    const approval = asCard({
+      type: "approval",
+      id: "night-1",
+      prompt: "Apply this to the event page?",
+      proposal: { event: { title: "Midnight Drop", venue: "Sample Lounge", date: "2026-12-31", time: "21:00" } },
+    })!;
+    const pending = appendAssistant([], "Proposal ready.", approval);
+    const waiting = decideApproval(pending, "night-1", false, DEFAULT_SCENE, EMPTY_DRAFT, EMPTY_EVENT);
+    expect("changed" in waiting && waiting.changed).toBe(false);
+    expect("event" in waiting && waiting.event.title).toBe(EMPTY_EVENT.title);
+    expect("event" in waiting && waiting.event.venue).toBe("");
+    const accepted = decideApproval(pending, "night-1", true, DEFAULT_SCENE, EMPTY_DRAFT, EMPTY_EVENT);
+    expect("event" in accepted && accepted.event).toMatchObject({ title: "Midnight Drop", venue: "Sample Lounge", date: "2026-12-31", time: "21:00" });
+  });
+
   it("disables an older pending card when a new one of the same kind arrives", () => {
     const newer = asCard({
       type: "choice",

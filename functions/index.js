@@ -12,7 +12,7 @@ const options = { region: "us-central1", maxInstances: 10 };
 initializeApp({ storageBucket: BUCKET });
 
 /** Bump when the deployed functions change, so a deploy can be confirmed end to end. */
-export const FUNCTIONS_VERSION = "2026.11.08-scene-chat-2";
+export const FUNCTIONS_VERSION = "2026.11.08-scene-chat-3";
 
 const xaiKey = defineSecret("XAI_API_KEY");
 
