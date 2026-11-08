@@ -1,6 +1,6 @@
-import { useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type FormEvent } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type FormEvent, type KeyboardEvent } from "react";
 import { ChatError, sendSceneChat } from "./chat/client";
-import { chatLayer, shellFrame, stickToLatest, type ShellFrame } from "./chat/keyboard";
+import { acceptSubmit, chatLayer, composingKey, enterInsertsLine, layoutWidth, shellFrame, stickToLatest, type ShellFrame } from "./chat/keyboard";
 import { cutoutFile } from "./portrait/segment";
 import { loadScene, mergeScene, saveScene } from "./scene/schema";
 import type { Scene } from "./scene/types";
@@ -34,13 +34,15 @@ export default function App() {
   const fileRef = useRef<HTMLInputElement>(null);
   const portraitRef = useRef<string | null>(null);
   const fieldRef = useRef<HTMLTextAreaElement>(null);
+  const sendRef = useRef<HTMLButtonElement>(null);
+  const sendFromButton = useRef(false);
   const scrollerRef = useRef<HTMLDivElement>(null);
   const stickRef = useRef(true);
 
   useEffect(() => {
     const apply = () => {
       const viewport = window.visualViewport;
-      setWidth(window.innerWidth);
+      setWidth(layoutWidth(window.innerWidth, document.documentElement.clientWidth));
       setFrame(
         shellFrame({
           innerHeight: window.innerHeight,
@@ -114,8 +116,17 @@ export default function App() {
     }
   }
 
-  async function onSubmit(event: FormEvent) {
+  function onFieldKeyDown(event: KeyboardEvent<HTMLTextAreaElement>) {
+    const composing = composingKey(event.nativeEvent.isComposing, event.keyCode);
+    if (!enterInsertsLine(event.key, composing)) return;
+    // Return inserts a newline. Do not request submit from the key.
+  }
+
+  async function onSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
+    const fromButton = sendFromButton.current;
+    sendFromButton.current = false;
+    if (!acceptSubmit(fromButton)) return;
     const content = draft.trim();
     if (!content || busy) return;
     const history = [...turns.filter((turn) => turn.role !== "error"), { role: "user" as const, content }];
@@ -199,12 +210,22 @@ export default function App() {
             enterKeyHint="enter"
             onFocus={() => setFocused(true)}
             onBlur={() => setFocused(false)}
+            onKeyDown={onFieldKeyDown}
             onChange={(event) => {
               setDraft(event.target.value);
               fitField(event.target);
             }}
           />
-          <button type="submit" className="send" aria-label={busy ? "Sending" : "Send"} disabled={busy || !draft.trim()}>
+          <button
+            ref={sendRef}
+            type="submit"
+            className="send"
+            aria-label={busy ? "Sending" : "Send"}
+            disabled={busy || !draft.trim()}
+            onClick={() => {
+              sendFromButton.current = true;
+            }}
+          >
             {busy ? "…" : "↑"}
           </button>
         </form>

@@ -20,6 +20,7 @@ The fan-counter Cloud Functions and `functions/scripts/seed-admin.mjs` remain fo
 
 - **React 19 + TypeScript + Vite.** One page, system sans-serif. The room is layered CSS color and soft shapes, not a WebGL scene. No login UI.
 - **Cutout** is MediaPipe in the browser (`src/portrait`). Chat is `POST /api/scene`, rewritten to the `sceneChat` function.
+- **Return** inserts a new line. Shift+Return does the same. An IME confirmation does not send. Only the Send button sends. On a phone-width layout, focusing the field fades the room and opens the transcript even when no software keyboard is present.
 - **Functions** in `functions/` still include check-in and artist images. `functions/lib/sceneChat.js` is the new chat handler. Tests mock `api.x.ai`; they are not a live Grok call.
 
 ## Local development
