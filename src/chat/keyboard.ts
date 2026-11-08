@@ -26,11 +26,37 @@ export function keyboardOpen(keyboard: number): boolean {
   return keyboard > 80;
 }
 
+/** The narrower of the window and the layout viewport. A phone-sized frame inside a wide window still counts as narrow. */
+export function layoutWidth(innerWidth: number, clientWidth: number): number {
+  const inner = Number.isFinite(innerWidth) && innerWidth > 0 ? innerWidth : 0;
+  const client = Number.isFinite(clientWidth) && clientWidth > 0 ? clientWidth : inner;
+  if (!inner) return client;
+  return Math.min(inner, client);
+}
+
 /** Phones, including landscape, use the chat layer while the field is focused. A desktop cursor does not. */
 export function chatLayer(focused: boolean, keyboard: boolean, width: number): boolean {
   if (!focused && !keyboard) return false;
   if (keyboard) return true;
   return width <= 820;
+}
+
+/** Enter confirms an IME composition. It must not also send. */
+export function composingKey(isComposing: boolean, keyCode: number): boolean {
+  return isComposing || keyCode === 229;
+}
+
+/**
+ * Return always inserts a newline, including Shift+Enter.
+ * Sending is only the Send button, so a hardware Return or a phone return key cannot submit early.
+ */
+export function enterInsertsLine(key: string, composing: boolean): boolean {
+  return key === "Enter" && !composing;
+}
+
+/** Ignore a submit that did not come from the Send button (implicit Enter). */
+export function acceptSubmit(fromSendButton: boolean): boolean {
+  return fromSendButton;
 }
 
 /** Keep the reader's place unless they are already near the newest line. */

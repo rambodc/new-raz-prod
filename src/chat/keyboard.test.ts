@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { chatLayer, keyboardOpen, shellFrame, stickToLatest } from "./keyboard";
+import { acceptSubmit, chatLayer, composingKey, enterInsertsLine, keyboardOpen, layoutWidth, shellFrame, stickToLatest } from "./keyboard";
 
 describe("visual viewport shell", () => {
   it("fills the screen when the keyboard is closed", () => {
@@ -44,6 +44,28 @@ describe("chat layer", () => {
     expect(chatLayer(true, true, 1280)).toBe(true);
     expect(chatLayer(true, false, 390)).toBe(true);
     expect(chatLayer(true, false, 1200)).toBe(false);
+  });
+
+  it("focus without a keyboard still opens the chat layer on a phone-sized layout", () => {
+    expect(keyboardOpen(0)).toBe(false);
+    expect(chatLayer(true, false, layoutWidth(1400, 390))).toBe(true);
+    expect(chatLayer(true, false, layoutWidth(1280, 1280))).toBe(false);
+  });
+});
+
+describe("enter and composition", () => {
+  it("lets Return and Shift+Return insert a line and ignores IME Enter", () => {
+    expect(enterInsertsLine("Enter", false)).toBe(true);
+    expect(enterInsertsLine("Enter", true)).toBe(false);
+    expect(enterInsertsLine("a", false)).toBe(false);
+    expect(composingKey(true, 13)).toBe(true);
+    expect(composingKey(false, 229)).toBe(true);
+    expect(composingKey(false, 13)).toBe(false);
+  });
+
+  it("sends only from the Send button", () => {
+    expect(acceptSubmit(true)).toBe(true);
+    expect(acceptSubmit(false)).toBe(false);
   });
 });
 
