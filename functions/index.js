@@ -4,9 +4,9 @@ import { getStorage } from "firebase-admin/storage";
 import { HttpsError, onCall, onRequest } from "firebase-functions/v2/https";
 import { defineSecret } from "firebase-functions/params";
 import { CheckInError, MAX_IMAGE_BYTES, parseInput, performCheckIn, sniffImageType, validArtistId } from "./lib/checkin.js";
-import { imageBuckets, IMAGE_MODEL, handleImageRequest } from "./lib/images.js";
+import { imageBuckets, IMAGE_MODEL, IMAGE_ROUTE_BUDGET_SEC, handleImageRequest } from "./lib/images.js";
 import { buckets, DEFAULT_MODEL, handleSceneChat } from "./lib/sceneChat.js";
-import { SEARCH_MODEL } from "./lib/webSearch.js";
+import { CHAT_ROUTE_BUDGET_SEC, SEARCH_MODEL } from "./lib/webSearch.js";
 
 const BUCKET = "new-raz-prod.firebasestorage.app";
 const options = { region: "us-central1", maxInstances: 10 };
@@ -14,7 +14,7 @@ const options = { region: "us-central1", maxInstances: 10 };
 initializeApp({ storageBucket: BUCKET });
 
 /** Bump when the deployed functions change, so a deploy can be confirmed end to end. */
-export const FUNCTIONS_VERSION = "2026.11.08-page-editor-1";
+export const FUNCTIONS_VERSION = "2026.11.08-page-editor-2";
 
 const xaiKey = defineSecret("XAI_API_KEY");
 
@@ -23,7 +23,7 @@ const xaiKey = defineSecret("XAI_API_KEY");
  * Creating the secret is required before this function can deploy.
  */
 export const sceneChat = onRequest(
-  { ...options, timeoutSeconds: 30, memory: "256MiB", maxInstances: 3, secrets: [xaiKey], cors: false, invoker: "public" },
+  { ...options, timeoutSeconds: CHAT_ROUTE_BUDGET_SEC, memory: "256MiB", maxInstances: 3, secrets: [xaiKey], cors: false, invoker: "public" },
   async (req, res) => {
     const result = await handleSceneChat({
       method: req.method,
@@ -61,7 +61,7 @@ function writeResult(res, result) {
  * The same Cloud Secret is read here. The browser never receives it.
  */
 export const sceneImage = onRequest(
-  { region: "us-central1", timeoutSeconds: 90, memory: "512MiB", maxInstances: 2, secrets: [xaiKey], cors: false, invoker: "public" },
+  { region: "us-central1", timeoutSeconds: IMAGE_ROUTE_BUDGET_SEC, memory: "512MiB", maxInstances: 2, secrets: [xaiKey], cors: false, invoker: "public" },
   async (req, res) => {
     const result = await handleImageRequest({
       method: req.method,

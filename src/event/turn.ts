@@ -47,6 +47,24 @@ export function localTurn(event: EventPage, text: string, nonce: number): { repl
       card: asCard({ type: "approval", id: id("look"), prompt: `Use the ${style} look?`, proposal: { event: { style } } }),
     };
   }
+  const guest = answerGuestQuestion(event, text);
+  if (guest) return { reply: guest, card: null };
+  if (text.trim().endsWith("?")) return null;
+  const asked = fieldsFromAsk(text, browserToday());
+  const named = Boolean(asked.patch.title || asked.patch.venue || asked.patch.description || asked.patch.artistName);
+  if (named || (asked.mentioned.invalid && !Object.keys(asked.patch).length)) {
+    if (asked.mentioned.invalid && !Object.keys(asked.patch).length) {
+      return { reply: "That isn't a real calendar day. Say the month and day again, and include the year if it is in the past.", card: null };
+    }
+    if (named) {
+      return {
+        reply: asked.mentioned.invalid
+          ? "That date isn't a real calendar day, so it was left off. Accept to apply the other details. Nothing changes until you do."
+          : "Accept to update this page. Nothing is sent or booked.",
+        card: asCard({ type: "approval", id: id("cmd"), prompt: "Apply this to the event page?", proposal: { event: asked.patch } }),
+      };
+    }
+  }
   const proposal = proposalFromText(text);
   if (proposal) {
     return {
@@ -54,10 +72,6 @@ export function localTurn(event: EventPage, text: string, nonce: number): { repl
       card: asCard({ type: "approval", id: id("cmd"), prompt: "Apply this to the event page?", proposal }),
     };
   }
-  const guest = answerGuestQuestion(event, text);
-  if (guest) return { reply: guest, card: null };
-  if (text.trim().endsWith("?")) return null;
-  const asked = fieldsFromAsk(text, browserToday());
   if (asked.mentioned.invalid && !Object.keys(asked.patch).length) {
     return { reply: "That isn't a real calendar day. Say the month and day again, and include the year if it is in the past.", card: null };
   }
