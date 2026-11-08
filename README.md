@@ -1,49 +1,26 @@
 # Razzberry
 
-The **fan counter**. A fan checks in at a live show, and for every artist on the bill their number goes up by one. Your number for an artist is how many of that artist's shows you have been to.
+The public website is a no-login test homepage: an atmospheric portrait room, a photo cut out in the browser, and a text composer that asks Grok to change the room. There is no sign-in screen and no voice control.
 
-## Screens
+A public page that calls a paid model can run up a bill if someone scripts it. The function caps message size, output tokens, and requests per server instance. That is not a global spending cap. Set a budget on the xAI account before this is public.
 
-| Route | What it is |
-| --- | --- |
-| `/signin`, `/signup`, `/forgot-password` | Email and password accounts, over the live 3D room. **Try the UI demo** opens the sample world with no account |
-| `/demo` | Sample artist **NOVA**. Follow, the portal, "I'm here", and edit preview all stay on this device. Nothing is saved. The count is marked sample |
-| `/` | Signed in: the 3D artist world for tonight's show. Enter the portal, then "I'm here" still uses the real location check-in |
-| `/numbers` | The list: **Tonight** and **Your numbers** |
-| `/artist/:id` | The artist's picture, name, total fans and past shows |
-| `/admin` | Admins only: add a show, edit its end time or delete it, upload one picture per artist |
-| `/location-help` | How to turn on location, shown if the browser says no |
-| `/welcome` | Account: who you are, and sign out |
-
-## How it works
-
-- **Check-in.** The app says "We use your location once to confirm you're at the show", asks the browser for the position, and calls the `checkIn` callable Cloud Function (v2). The function accepts the check-in only if the show is live (from 15 minutes before it starts to 15 minutes after it ends), the phone's accuracy is 200 m or better, and the fan is within 150 m of the venue (up to 50 m of reported accuracy is forgiven). It is one check-in per fan per show, and a second tap just says "already checked in". The fan's coordinates are never stored.
-- **Counting.** In one transaction the function writes `checkins/{showId}_{uid}`, adds one to `users/{uid}/artistCounts/{artistId}` for each artist on the bill, and, the first time a fan is counted for an artist, adds `artists/{artistId}/fans/{uid}` and one to the artist's `fanCount` (distinct fans, never double counted).
-- **Admins** are the users with a document in `admins/{uid}`. Clients cannot write that collection. Seed it with `functions/scripts/seed-admin.mjs` (see below) or by hand in the Firebase console.
-- **Artist pictures.** An admin picks one picture per artist; the browser shrinks it to at most 1000 px and the `setArtistImage` function (admins only) checks the type and the 5 MB cap and stores it at `artists/{artistId}/image` in Cloud Storage. Storage rules make those files public to read and closed to every client write.
-- **Rules.** Signed-in users read shows and artists; only admins write them (shows: create, change the end time, delete; artists: add and rename). A fan reads only their own numbers and check-ins. Check-ins, counts, fan totals and images are written only by the functions.
-
-### Adding the first admin
-
-1. The person signs up in the app.
-2. With access to the `new-raz-prod` project (for example `gcloud auth application-default login`):
+The photo never leaves the browser. The cutout uses Google's MediaPipe selfie model (Apache-2.0), loaded from this site the first time someone adds a photo. Chat text goes to our Cloud Function, which calls `api.x.ai`. The provider key is the Cloud Secret `XAI_API_KEY` and is not in the web bundle.
 
 ```sh
-cd functions && npm ci
-node scripts/seed-admin.mjs their-email@example.com
+firebase functions:secrets:set XAI_API_KEY --project new-raz-prod
 ```
 
-Or in the Firebase console: Firestore, start collection `admins`, document ID = their user ID (Authentication, Users, User UID), any field (for example `email`).
+Until that secret exists, the function cannot deploy, and the page says Grok isn't configured. It does not invent a reply.
 
-### Demo data
+The earlier fan-counter functions, Firestore rules, Storage rules, and stored accounts stay. This site no longer shows those screens.
 
-On the admin page, **Add demo data** adds two real John Summit CTRL ESCAPE arena dates (Boston, Washington DC), a fake "TEST SHOW" at #6, 7115 48 St SE, Calgary for "Test DJ Raz" and John Summit that is open from now until 11:59 pm Calgary time, and one picture per artist. It is safe to tap again: real shows are never duplicated, existing pictures are kept, and the TEST show is re-created with a fresh window. Pictures and credits are in `public/demo/` (John Summit's photo is CC BY-SA 4.0, see `public/demo/CREDITS.md`).
+The fan-counter Cloud Functions and `functions/scripts/seed-admin.mjs` remain for existing data. The website no longer has those screens or the demo pictures.
 
 ### How it's built
 
-- **React 19 + TypeScript + Vite**, no UI library. The room is a real WebGL scene (Three.js). Plain CSS in `src/styles` and `src/world/world.css`. The font (Outfit) is self-hosted. Dark by default with a light switch. The 3D room stays night-time either way.
-- **Firebase** (Auth, Firestore, Functions, Storage) is loaded on demand. All Firestore and Functions calls are in `src/data/api.ts`; the screens never import Firebase directly.
-- **Functions** live in `functions/`; the check-in rules are plain functions in `functions/lib/checkin.js` with tests.
+- **React 19 + TypeScript + Vite.** One page, system sans-serif. The room is layered CSS color and soft shapes, not a WebGL scene. No login UI.
+- **Cutout** is MediaPipe in the browser (`src/portrait`). Chat is `POST /api/scene`, rewritten to the `sceneChat` function.
+- **Functions** in `functions/` still include check-in and artist images. `functions/lib/sceneChat.js` is the new chat handler. Tests mock `api.x.ai`; they are not a live Grok call.
 
 ## Local development
 
@@ -51,10 +28,10 @@ Node.js 22 and Java 21 (for the rules emulator).
 
 ```sh
 npm ci
-cp .env.example .env.local   # then fill in VITE_FIREBASE_API_KEY (see the comment inside)
-npm run dev                  # http://localhost:5173
+npm run dev                  # http://localhost:5173  (chat proxies to the local scene server)
+node scripts/scene-server.mjs
 npm run lint
-npm test                     # unit + route smoke tests (Vitest, jsdom)
+npm test
 npm run build
 npm run test:rules           # Firestore + Storage rules emulator tests (needs Java)
 
@@ -63,7 +40,7 @@ npm run lint --prefix functions
 npm test --prefix functions
 ```
 
-`.env.local` is git-ignored. Firebase web config is public client configuration; never put server credentials in `VITE_*` variables.
+The local scene server reads `XAI_API_KEY` from the environment. Do not put that key in any `VITE_` variable. If it is unset, chat returns the not-configured error.
 
 ## Native iOS
 
