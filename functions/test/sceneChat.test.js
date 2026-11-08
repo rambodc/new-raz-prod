@@ -282,3 +282,92 @@ test("local dev ports can call chat and a missing key is still an error", async 
   assert.equal(result.body.error, "not-configured");
   assert.equal(result.allowOrigin, "http://127.0.0.1:5176");
 });
+
+function modelCard(content) {
+  return async () => ({
+    ok: true,
+    status: 200,
+    json: async () => ({ choices: [{ message: { content: JSON.stringify(content) } }] }),
+  });
+}
+
+test("a compound request keeps title, venue, and time on the same approval as the date", async () => {
+  const ask = "Midnight Drop at Sample Lounge on Dec31 at 21:00";
+  const now = Date.parse("2026-11-08T18:00:00Z");
+  const merged = await call({
+    now,
+    body: { messages: [{ role: "user", content: ask }] },
+    fetchImpl: modelCard({
+      reply: "Proposal ready for Midnight Drop at Sample Lounge.",
+      scene: {},
+      card: { type: "approval", id: "d-2026-12-31", prompt: "Use 2026-12-31?", proposal: { event: { date: "2026-12-31" } } },
+    }),
+  });
+  assert.equal(merged.body.card.id, "d-2026-12-31");
+  assert.equal(merged.body.card.type, "approval");
+  assert.deepEqual(merged.body.scene, {});
+  assert.equal(merged.body.card.proposal.event.title, "Midnight Drop");
+  assert.equal(merged.body.card.proposal.event.venue, "Sample Lounge");
+  assert.equal(merged.body.card.proposal.event.date, "2026-12-31");
+  assert.equal(merged.body.card.proposal.event.time, "21:00");
+  assert.match(merged.body.reply, /Proposal ready/);
+  assert.equal(/\bupdated\b/i.test(merged.body.reply), false);
+
+  const created = await call({
+    now,
+    body: { messages: [{ role: "user", content: ask }] },
+    fetchImpl: modelCard({ reply: "Proposal ready for Midnight Drop.", scene: {}, card: null }),
+  });
+  assert.equal(created.body.card.type, "approval");
+  assert.deepEqual(created.body.scene, {});
+  assert.equal(created.body.card.proposal.event.title, "Midnight Drop");
+  assert.equal(created.body.card.proposal.event.venue, "Sample Lounge");
+  assert.equal(created.body.card.proposal.event.time, "21:00");
+  assert.equal(created.body.card.proposal.event.date, "2026-12-31");
+});
+
+test("a date correction does not drop the other fields already on the proposal", async () => {
+  const result = await call({
+    now: Date.parse("2026-11-08T18:00:00Z"),
+    body: { messages: [{ role: "user", content: "December 31, 2024" }] },
+    fetchImpl: modelCard({
+      reply: "Proposal ready.",
+      scene: {},
+      card: {
+        type: "approval",
+        id: "keep-1",
+        prompt: "Use this night?",
+        proposal: { event: { title: "Keep Me", venue: "The Hall", time: "20:00", date: "2026-12-31" } },
+      },
+    }),
+  });
+  assert.equal(result.body.card.id, "keep-1");
+  assert.equal(result.body.card.proposal.event.date, "2024-12-31");
+  assert.equal(result.body.card.proposal.event.title, "Keep Me");
+  assert.equal(result.body.card.proposal.event.venue, "The Hall");
+  assert.equal(result.body.card.proposal.event.time, "20:00");
+  assert.deepEqual(result.body.scene, {});
+});
+
+test("an impossible day does not turn into a different date", async () => {
+  const result = await call({
+    now: Date.parse("2026-11-08T18:00:00Z"),
+    body: { messages: [{ role: "user", content: "February 31" }] },
+    fetchImpl: modelCard({
+      reply: "March 1, 2027 or March 3, 2027?",
+      scene: {},
+      card: {
+        type: "choice",
+        id: "march",
+        prompt: "Which day?",
+        options: [
+          { id: "a", label: "March 1, 2027" },
+          { id: "b", label: "March 3, 2027" },
+        ],
+      },
+    }),
+  });
+  assert.equal(result.body.card, null);
+  assert.equal(/march|2027/i.test(result.body.reply), false);
+  assert.match(result.body.reply, /isn't a real calendar day/);
+});

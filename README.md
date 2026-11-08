@@ -1,27 +1,27 @@
 # Razzberry
 
-The public website is a no-login test homepage: an atmospheric portrait room, a photo cut out in the browser, and a text composer that asks Grok to change the room. There is no sign-in screen and no voice control.
+The public website is a no-login test of one demo event. The main conversation holds a card that opens the full event page. That page has its own chat for the title, description, time, and place. Photos are attached in that chat. A cutout stays in the browser. An AI edit or a new image is a separate request to the image provider, shown as a preview until it is placed on the foreground or background.
 
-A public page that calls a paid model can run up a bill if someone scripts it. The function caps message size, output tokens, and requests per server instance. That is not a global spending cap. Set a budget on the xAI account before this is public.
+There is no sign-in screen and no voice control. Sample guest names and the invitation preview stay in this tab only. The invitation is not sent.
 
-The photo never leaves the browser. The cutout uses Google's MediaPipe selfie model (Apache-2.0), loaded from this site the first time someone adds a photo. Chat text goes to our Cloud Function, which calls `api.x.ai`. The provider key is the Cloud Secret `XAI_API_KEY` and is not in the web bundle.
+A public page that calls a paid model can run up a bill if someone scripts it. Text chat allows 1000 messages per browser per 10 minutes and 10000 per hour on each server copy. Web search is tighter: 30 per browser per 10 minutes and 150 per hour on each copy, and it also counts toward the text allowance. Images are separate: 8 per browser per 10 minutes and 40 per hour on each copy, one image per request, at most two at a time on a copy. None of these is a global spending cap. Set a budget on the xAI account before this is public.
+
+Chat text goes to `sceneChat`. Public search uses the xAI Responses API with the `web_search` tool and model `grok-4.7` (`XAI_SEARCH_MODEL` overrides it). Page edits that are not handled in the browser use chat completions with `grok-4.20-0309-non-reasoning` (`XAI_MODEL` overrides it). Image generation uses `POST /v1/images/generations` and image edit uses `POST /v1/images/edits`, both with `grok-imagine-image-2.0`, `n: 1`, `response_format: b64_json`, resolution `1k`, and quality `medium` (`XAI_IMAGE_MODEL` overrides the model). The provider key is the Cloud Secret `XAI_API_KEY` and is not in the web bundle. No second secret is required. Hosting rewrites `/api/scene` to `sceneChat` and `/api/image` to `sceneImage`.
 
 ```sh
 firebase functions:secrets:set XAI_API_KEY --project new-raz-prod
 ```
 
-Until that secret exists, the function cannot deploy, and the page says Grok isn't configured. It does not invent a reply.
+Until that secret exists, chat and images say they are not configured. They do not invent a reply or a picture. Search answers are shown only when the provider actually ran web search and returned an https source. Image responses that are only a temporary link are not downloaded.
 
-The earlier fan-counter functions, Firestore rules, Storage rules, and stored accounts stay. This site no longer shows those screens.
-
-The fan-counter Cloud Functions and `functions/scripts/seed-admin.mjs` remain for existing data. The website no longer has those screens or the demo pictures.
+The earlier fan-counter functions, Firestore rules, Storage rules, and stored accounts stay. This site no longer shows those screens. Photos are not written to Storage or to `sessionStorage`. Refresh keeps the event text in the tab and clears the photos.
 
 ### How it's built
 
-- **React 19 + TypeScript + Vite.** One page, system sans-serif. The room is layered CSS color and soft shapes, not a WebGL scene. No login UI.
-- **Cutout** is MediaPipe in the browser (`src/portrait`). Chat is `POST /api/scene`, rewritten to the `sceneChat` function.
-- **Return** inserts a new line. Shift+Return does the same. An IME confirmation does not send. Only the Send button sends. On a phone-width layout, focusing the field fades the room and opens the transcript even when no software keyboard is present.
-- **Functions** in `functions/` still include check-in and artist images. `functions/lib/sceneChat.js` is the new chat handler. Tests mock `api.x.ai`; they are not a live Grok call.
+- **React 19 + TypeScript + Vite.** One column, system sans-serif. The event page is layered color, type, and an optional photo. No login UI.
+- **Cutout** is MediaPipe in the browser (`src/portrait`). It does not upload the photo. AI edit and new images go to `POST /api/image`.
+- **Return** inserts a new line. An IME confirmation does not send. Only the Send button sends. New image and Edit image are separate buttons, so a text turn does not generate a picture.
+- **Functions** in `functions/` still include check-in and artist images. `functions/lib/sceneChat.js` is chat and search. `functions/lib/images.js` is generation and edit. Tests mock `api.x.ai`; they are not a live provider call.
 
 ## Local development
 
@@ -29,7 +29,7 @@ Node.js 22 and Java 21 (for the rules emulator).
 
 ```sh
 npm ci
-npm run dev                  # http://localhost:5173  (chat proxies to the local scene server)
+npm run dev                  # http://localhost:5173  (chat and images proxy to the local scene server)
 node scripts/scene-server.mjs
 npm run lint
 npm test

@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { calendarToday, resolveMentionedDate, zoneForEvent } from "../lib/event.js";
+import { calendarToday, cleanCommandValue, fieldsFromAsk, proposalFromText, resolveMentionedDate, zoneForEvent } from "../lib/event.js";
 
 const NOV_8_2026 = Date.parse("2026-11-08T18:00:00Z");
 
@@ -36,4 +36,37 @@ test("an explicit year is kept and an impossible day is not rewritten", () => {
   assert.equal(impossible.date, "");
   assert.equal(resolveMentionedDate("02/03/2024", today).ambiguous, true);
   assert.equal(resolveMentionedDate("What's the weather?", today).mentioned, false);
+});
+
+test("one sentence keeps title, venue, time, and the resolved date together", () => {
+  const today = "2026-11-08";
+  const mixed = fieldsFromAsk("Midnight Drop at Sample Lounge on Dec31 at 21:00", today);
+  assert.deepEqual(mixed.patch, { title: "Midnight Drop", venue: "Sample Lounge", date: "2026-12-31", time: "21:00" });
+  const historic = fieldsFromAsk("Midnight Drop at Sample Lounge on December 31, 2024 at 21:00", today);
+  assert.equal(historic.patch.date, "2024-12-31");
+  assert.equal(historic.patch.title, "Midnight Drop");
+  assert.equal(historic.patch.venue, "Sample Lounge");
+  assert.equal(historic.patch.time, "21:00");
+  const dateOnly = fieldsFromAsk("Dec 31", today);
+  assert.deepEqual(dateOnly.patch, { date: "2026-12-31" });
+  const impossible = fieldsFromAsk("Midnight Drop at Sample Lounge on February 31 at 21:00", today);
+  assert.equal(impossible.mentioned.invalid, true);
+  assert.equal(impossible.patch.date, undefined);
+  assert.equal(impossible.patch.title, "Midnight Drop");
+  assert.equal(impossible.patch.time, "21:00");
+});
+
+test("a venue instruction is not the venue, and a quoted value stays whole", () => {
+  assert.equal(cleanCommandValue("The Blue Room, but let me approve it first."), "The Blue Room");
+  assert.equal(cleanCommandValue("Late Friday."), "Late Friday");
+  assert.equal(cleanCommandValue("St. Louis"), "St. Louis");
+  assert.equal(cleanCommandValue('"Late Friday."'), "Late Friday.");
+  assert.equal(cleanCommandValue('"The Blue Room, but let me approve it first."'), "The Blue Room, but let me approve it first.");
+  assert.equal(cleanCommandValue("The Blue Room or The Hall"), "");
+  assert.equal(proposalFromText("Set the venue to The Blue Room, but let me approve it first.").event.venue, "The Blue Room");
+  assert.equal(proposalFromText("Set the title to Late Friday.").event.title, "Late Friday");
+  assert.equal(proposalFromText('Set the title to "Late Friday."').event.title, "Late Friday.");
+  assert.equal(proposalFromText('Set the venue to "The Blue Room, but let me approve it first."').event.venue, "The Blue Room, but let me approve it first.");
+  assert.equal(proposalFromText("Set the venue to The Blue Room, East Hall").event.venue, "The Blue Room, East Hall");
+  assert.equal(proposalFromText("Set the venue to The Blue Room or The Hall"), null);
 });

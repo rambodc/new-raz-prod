@@ -15,6 +15,9 @@ export default defineConfig({
   plugins: [react(), copyVisionWasm()],
   build: { target: "es2022", chunkSizeWarningLimit: 1000 },
   server: {
-    proxy: { "/api/scene": "http://127.0.0.1:8787" },
+    proxy: {
+      "/api/scene": "http://127.0.0.1:8787",
+      "/api/image": "http://127.0.0.1:8787",
+    },
   },
 });

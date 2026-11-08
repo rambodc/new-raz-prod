@@ -14,6 +14,7 @@
     "trailingSlash": false,
     "rewrites": [
       { "source": "/api/scene", "function": { "functionId": "sceneChat", "region": "us-central1" } },
+      { "source": "/api/image", "function": { "functionId": "sceneImage", "region": "us-central1" } },
       { "source": "**", "destination": "/index.html" }
     ],
     "headers": [
