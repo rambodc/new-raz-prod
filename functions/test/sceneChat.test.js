@@ -99,6 +99,38 @@ test("the default model is the verified non-reasoning id", () => {
   assert.equal(DEFAULT_MODEL, "grok-4.20-0309-non-reasoning");
 });
 
+test("a card is allowlisted and a password field is dropped", async () => {
+  const result = await call({
+    fetchImpl: async () => ({
+      ok: true,
+      status: 200,
+      json: async () => ({
+        choices: [
+          {
+            message: {
+              content: JSON.stringify({
+                reply: "Which room?",
+                scene: { colors: { glow: "red" } },
+                card: {
+                  type: "form",
+                  id: "night-1",
+                  prompt: "Name it <b>now</b>",
+                  fields: ["eventTitle", "password"],
+                },
+              }),
+            },
+          },
+        ],
+      }),
+    }),
+  });
+  assert.equal(result.status, 200);
+  assert.equal(result.body.card.type, "form");
+  assert.deepEqual(result.body.card.fields, ["eventTitle"]);
+  assert.equal(result.body.card.prompt.includes("<"), false);
+  assert.equal(result.body.scene.colors, undefined);
+});
+
 test("another website origin is refused", async () => {
   const result = await call({ origin: "https://evil.example" });
   assert.equal(result.status, 403);

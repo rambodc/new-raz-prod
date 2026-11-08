@@ -1,3 +1,4 @@
+import { sanitizeCard, sanitizeDraft } from "./cards.js";
 import { DEFAULT_SCENE, mergeScene, sanitizeScene } from "./sceneSchema.js";
 
 const WINDOW_MS = 10 * 60 * 1000;
@@ -7,7 +8,7 @@ const MAX_GLOBAL = 80;
 const MAX_RAW_BYTES = 12_000;
 const MAX_MESSAGES = 8;
 const MAX_MESSAGE = 500;
-const MAX_OUTPUT_TOKENS = 400;
+const MAX_OUTPUT_TOKENS = 700;
 export const DEFAULT_MODEL = "grok-4.20-0309-non-reasoning";
 
 const ORIGINS = new Set([
@@ -20,15 +21,17 @@ const ORIGINS = new Set([
 ]);
 
 const SYSTEM = [
-  "You adjust one full-screen portrait scene. The person's photograph is never sent to you and you cannot replace their face.",
-  "Respond with one JSON object only: {\"reply\":\"plain text\",\"scene\":{...}}.",
-  "reply is one or two short sentences, plain text, no HTML.",
-  "scene may include colors.base, colors.glow, colors.deep as #rrggbb;",
-  "light.warmth and light.intensity from 0 to 1;",
-  "shapes.count from 3 to 7, shapes.softness and shapes.drift from 0 to 1;",
-  "name up to 32 characters, line up to 90 characters;",
-  "portrait.x and portrait.y from -1 to 1, portrait.scale from 0.55 to 1.35.",
-  "Omit any scene field you are not changing. Do not include any other keys.",
+  "You help shape a Razzberry session: a portrait room, an artist, and a night. This is not a saved event, ticket, or account.",
+  "The photograph is never sent to you. Never ask for or mention passwords, email, payment, or sign-in.",
+  "Respond with one JSON object: {\"reply\":\"plain text\",\"scene\":{},\"card\":null}.",
+  "reply is one or two short sentences, no HTML.",
+  "Prefer a card. choice: {\"type\":\"choice\",\"id\":\"short-id\",\"prompt\":\"...\",\"options\":[{\"id\":\"a\",\"label\":\"...\"}]} with 2 to 5 options.",
+  "form: {\"type\":\"form\",\"id\":\"short-id\",\"prompt\":\"...\",\"fields\":[\"artistName\",\"eventTitle\",\"vibe\",\"details\"]} using only those field names.",
+  "approval: {\"type\":\"approval\",\"id\":\"short-id\",\"prompt\":\"...\",\"proposal\":{\"scene\":{...},\"draft\":{...}}}.",
+  "Put room, name, and event changes in an approval proposal. Leave scene empty when you send an approval.",
+  "scene keys, only if there is no approval: colors.base, colors.glow, colors.deep as #rrggbb; light.warmth and light.intensity 0 to 1;",
+  "shapes.count 3 to 7, shapes.softness and shapes.drift 0 to 1; name, line; portrait.x, portrait.y -1 to 1, portrait.scale 0.55 to 1.35.",
+  "The person can answer a choice by tapping or by typing. Do not invent publication, invites, or saving.",
 ].join(" ");
 
 export const buckets = new Map();
@@ -127,6 +130,7 @@ export async function handleSceneChat({ method, origin, ip, body, rawLength, now
   }
 
   const scene = mergeScene(DEFAULT_SCENE, sanitizeScene(body.scene));
+  const draft = sanitizeDraft(body.draft);
   let response;
   try {
     response = await fetchImpl("https://api.x.ai/v1/chat/completions", {
@@ -142,7 +146,7 @@ export async function handleSceneChat({ method, origin, ip, body, rawLength, now
         response_format: { type: "json_object" },
         messages: [
           { role: "system", content: SYSTEM },
-          { role: "system", content: `Current scene: ${JSON.stringify(scene)}` },
+          { role: "system", content: `Current scene: ${JSON.stringify(scene)} Current session draft, not saved: ${JSON.stringify(draft)}` },
           ...parsed.messages,
         ],
       }),
@@ -168,15 +172,17 @@ export async function handleSceneChat({ method, origin, ip, body, rawLength, now
   const text = messageText(payload?.choices?.[0]?.message);
   let reply = "";
   let patch = {};
+  let card = null;
   try {
     const parsedJson = JSON.parse(text);
     reply = plainReply(parsedJson?.reply) || plainReply(text);
     patch = sanitizeScene(parsedJson?.scene);
+    card = sanitizeCard(parsedJson?.card);
   } catch {
     reply = plainReply(text);
   }
-  if (!reply && !Object.keys(patch).length) {
+  if (!reply && !Object.keys(patch).length && !card) {
     return { status: 502, body: { error: "grok-failed", message: "Grok didn't answer. Try again." }, allowOrigin: allowed, extraHeaders };
   }
-  return { status: 200, body: { reply, scene: patch }, allowOrigin: allowed, extraHeaders };
+  return { status: 200, body: { reply, scene: patch, card }, allowOrigin: allowed, extraHeaders };
 }
