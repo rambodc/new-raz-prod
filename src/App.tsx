@@ -1,6 +1,6 @@
-import { useEffect, useMemo, useRef, useState, type CSSProperties, type FormEvent } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type FormEvent } from "react";
 import { ChatError, sendSceneChat } from "./chat/client";
-import { keyboardInset, keyboardOpen } from "./chat/keyboard";
+import { chatLayer, shellFrame, stickToLatest, type ShellFrame } from "./chat/keyboard";
 import { cutoutFile } from "./portrait/segment";
 import { loadScene, mergeScene, saveScene } from "./scene/schema";
 import type { Scene } from "./scene/types";
@@ -16,7 +16,9 @@ const BLOBS = [
   { x: "64%", y: "74%" },
 ];
 
-type Turn = { role: "user" | "assistant"; content: string };
+type Turn = { role: "user" | "assistant" | "error"; content: string };
+
+const closedFrame = (): ShellFrame => shellFrame({ innerHeight: window.innerHeight, viewportHeight: window.innerHeight, offsetTop: 0 });
 
 export default function App() {
   const [scene, setScene] = useState<Scene>(loadScene);
@@ -25,22 +27,40 @@ export default function App() {
   const [draft, setDraft] = useState("");
   const [busy, setBusy] = useState(false);
   const [cutting, setCutting] = useState(false);
-  const [notice, setNotice] = useState("");
-  const [failed, setFailed] = useState(false);
-  const [inset, setInset] = useState(0);
+  const [photoNote, setPhotoNote] = useState("");
+  const [focused, setFocused] = useState(false);
+  const [frame, setFrame] = useState<ShellFrame>(closedFrame);
+  const [width, setWidth] = useState(() => window.innerWidth);
   const fileRef = useRef<HTMLInputElement>(null);
   const portraitRef = useRef<string | null>(null);
+  const fieldRef = useRef<HTMLTextAreaElement>(null);
+  const scrollerRef = useRef<HTMLDivElement>(null);
+  const stickRef = useRef(true);
 
   useEffect(() => {
-    const viewport = window.visualViewport;
-    if (!viewport) return;
-    const apply = () => setInset(keyboardInset(window.innerHeight, viewport.height, viewport.offsetTop));
+    const apply = () => {
+      const viewport = window.visualViewport;
+      setWidth(window.innerWidth);
+      setFrame(
+        shellFrame({
+          innerHeight: window.innerHeight,
+          viewportHeight: viewport?.height ?? window.innerHeight,
+          offsetTop: viewport?.offsetTop ?? 0,
+        }),
+      );
+      if (window.scrollX || window.scrollY) window.scrollTo(0, 0);
+    };
     apply();
-    viewport.addEventListener("resize", apply);
-    viewport.addEventListener("scroll", apply);
+    const viewport = window.visualViewport;
+    viewport?.addEventListener("resize", apply);
+    viewport?.addEventListener("scroll", apply);
+    window.addEventListener("resize", apply);
+    window.addEventListener("orientationchange", apply);
     return () => {
-      viewport.removeEventListener("resize", apply);
-      viewport.removeEventListener("scroll", apply);
+      viewport?.removeEventListener("resize", apply);
+      viewport?.removeEventListener("scroll", apply);
+      window.removeEventListener("resize", apply);
+      window.removeEventListener("orientationchange", apply);
     };
   }, []);
 
@@ -48,29 +68,47 @@ export default function App() {
     saveScene(scene);
   }, [scene]);
 
-  useEffect(() => () => {
-    if (portraitRef.current) URL.revokeObjectURL(portraitRef.current);
-  }, []);
+  useEffect(
+    () => () => {
+      if (portraitRef.current) URL.revokeObjectURL(portraitRef.current);
+    },
+    [],
+  );
 
-  const style = useMemo(() => sceneStyle(scene, inset), [scene, inset]);
-  const open = keyboardOpen(inset);
+  const chatting = chatLayer(focused, frame.keyboard > 80, width);
+  const style = useMemo(() => sceneStyle(scene, frame), [scene, frame]);
+
+  useLayoutEffect(() => {
+    const el = scrollerRef.current;
+    if (!el || !stickRef.current) return;
+    el.scrollTop = el.scrollHeight;
+  }, [turns, busy, chatting, draft]);
+
+  function onTranscriptScroll() {
+    const el = scrollerRef.current;
+    if (!el) return;
+    stickRef.current = stickToLatest(el.scrollTop, el.scrollHeight, el.clientHeight);
+  }
+
+  function fitField(el: HTMLTextAreaElement) {
+    el.style.height = "0px";
+    el.style.height = `${Math.min(el.scrollHeight, 112)}px`;
+  }
 
   async function onPhoto(file: File | undefined) {
     if (!file || cutting) return;
     setCutting(true);
-    setFailed(false);
-    setNotice("Loading the cutout model, then removing the background in this browser. The photo is not uploaded.");
+    setPhotoNote("Removing the background in this browser. The photo is not uploaded.");
     try {
       const url = await cutoutFile(file);
       if (portraitRef.current) URL.revokeObjectURL(portraitRef.current);
       portraitRef.current = url;
       setPortrait(url);
-      setNotice("");
+      setPhotoNote("");
     } catch (error) {
-      setFailed(true);
       const message = error instanceof Error && error.message ? error.message : "Couldn't use that photo.";
       console.error(message);
-      setNotice(message);
+      setPhotoNote(message);
     } finally {
       setCutting(false);
     }
@@ -80,28 +118,31 @@ export default function App() {
     event.preventDefault();
     const content = draft.trim();
     if (!content || busy) return;
-    const history = [...turns, { role: "user" as const, content }];
+    const history = [...turns.filter((turn) => turn.role !== "error"), { role: "user" as const, content }];
+    stickRef.current = true;
     setTurns(history);
     setDraft("");
+    if (fieldRef.current) fieldRef.current.style.height = "";
     setBusy(true);
-    setFailed(false);
-    setNotice("");
     try {
-      const result = await sendSceneChat(history, scene);
+      const result = await sendSceneChat(
+        history.map((turn) => ({ role: turn.role as "user" | "assistant", content: turn.content })),
+        scene,
+      );
       setScene((current) => mergeScene(current, result.scene));
-      setTurns((current) => [...current, { role: "assistant", content: result.reply }]);
-      if (result.reply) setNotice(result.reply);
+      setTurns((current) => [...current, { role: "assistant", content: result.reply || "…" }]);
     } catch (error) {
-      setFailed(true);
-      setNotice(error instanceof ChatError ? error.message : "Chat didn't answer.");
-      setTurns(turns);
+      const message = error instanceof ChatError ? error.message : "Chat didn't answer.";
+      setTurns((current) => [...current, { role: "error", content: message }]);
     } finally {
       setBusy(false);
     }
   }
 
+  const transcript = [...turns, ...(busy ? [{ role: "assistant" as const, content: "…" }] : [])];
+
   return (
-    <main className={open ? "stage keyboard-open" : "stage"} style={style}>
+    <main className={chatting ? "stage chat" : "stage"} style={style}>
       <div className="warmth" />
       <div className="cool" />
       {BLOBS.slice(0, scene.shapes.count).map((blob, index) => (
@@ -127,31 +168,44 @@ export default function App() {
             }}
           />
         </header>
-        <div className="world">
-          {portrait ? <img className="cutout" src={portrait} alt="" /> : null}
+        <div className="middle">
+          <div className="world">
+            {portrait ? <img className="cutout" src={portrait} alt="" /> : null}
+            <div className="copy">
+              {scene.name ? <h1>{scene.name}</h1> : null}
+              {scene.line ? <p>{scene.line}</p> : null}
+            </div>
+          </div>
+          <div ref={scrollerRef} className="transcript" role="log" aria-relevant="additions" onScroll={onTranscriptScroll}>
+            {transcript.map((turn, index) => (
+              <p key={`${turn.role}-${index}`} className={`msg ${turn.role}`}>
+                {turn.content}
+              </p>
+            ))}
+          </div>
         </div>
-        <div className="copy">
-          {scene.name ? <h1>{scene.name}</h1> : null}
-          {scene.line ? <p>{scene.line}</p> : null}
-        </div>
-        <p className={failed ? "reply error" : "reply"} role="status">
-          {notice}
-        </p>
+        {photoNote ? <p className="photo-note">{photoNote}</p> : null}
         <form className="composer" onSubmit={onSubmit}>
           <label className="status" htmlFor="ask">
             Message
           </label>
-          <input
+          <textarea
+            ref={fieldRef}
             id="ask"
+            rows={1}
             value={draft}
             placeholder="What would you like to create?"
-            enterKeyHint="send"
             maxLength={500}
-            disabled={busy}
-            onChange={(event) => setDraft(event.target.value)}
+            enterKeyHint="enter"
+            onFocus={() => setFocused(true)}
+            onBlur={() => setFocused(false)}
+            onChange={(event) => {
+              setDraft(event.target.value);
+              fitField(event.target);
+            }}
           />
-          <button type="submit" className="send" aria-label="Send" disabled={busy || !draft.trim()}>
-            ↑
+          <button type="submit" className="send" aria-label={busy ? "Sending" : "Send"} disabled={busy || !draft.trim()}>
+            {busy ? "…" : "↑"}
           </button>
         </form>
       </div>
@@ -159,7 +213,7 @@ export default function App() {
   );
 }
 
-function sceneStyle(scene: Scene, inset: number): CSSProperties {
+function sceneStyle(scene: Scene, frame: ShellFrame): CSSProperties {
   const softness = 28 + scene.shapes.softness * 70;
   const drift = 36 - scene.shapes.drift * 20;
   return {
@@ -170,9 +224,10 @@ function sceneStyle(scene: Scene, inset: number): CSSProperties {
     "--intensity": String(scene.light.intensity),
     "--softness": `${softness}px`,
     "--drift": `${drift}s`,
-    "--keyboard": `${inset}px`,
     "--portrait-x": `${scene.portrait.x * 10}%`,
     "--portrait-y": `${scene.portrait.y * 8}%`,
     "--portrait-scale": String(scene.portrait.scale),
+    top: frame.top,
+    height: frame.height,
   } as CSSProperties;
 }
