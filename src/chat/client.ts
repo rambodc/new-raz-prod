@@ -1,3 +1,4 @@
+import type { EventPage } from "../event/types";
 import { sanitizeScene } from "../scene/schema";
 import type { Scene, ScenePatch } from "../scene/types";
 import { asCard, type Card, type Draft } from "./flow";
@@ -15,11 +16,12 @@ export async function sendSceneChat(
   messages: { role: "user" | "assistant"; content: string }[],
   scene: Scene,
   draft: Draft,
+  context: { event: EventPage; guestFacts: string },
 ): Promise<{ reply: string; scene: ScenePatch; card: Card | null }> {
   const response = await fetch("/api/scene", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ messages, scene, draft }),
+    body: JSON.stringify({ messages, scene, draft, event: context.event, guestFacts: context.guestFacts }),
   });
   const data = (await response.json().catch(() => null)) as { reply?: unknown; scene?: unknown; card?: unknown; message?: unknown; error?: unknown } | null;
   if (!response.ok) {

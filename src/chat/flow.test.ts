@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { EMPTY_EVENT } from "../../functions/lib/event.js";
 import { DEFAULT_SCENE } from "../scene/schema";
 import { answerChoice, appendAssistant, asCard, decideApproval, EMPTY_DRAFT, submitForm, type TranscriptItem } from "./flow";
 
@@ -55,15 +56,33 @@ describe("choice, form, and approval", () => {
       proposal: { scene: { colors: { glow: "#22aa99" }, name: "<b>NOVA</b>" }, draft: { eventTitle: "Friday" } },
     })!;
     const pending = appendAssistant([], "Here is a proposal.", approval);
-    const rejected = decideApproval(pending, "p1", false, DEFAULT_SCENE, EMPTY_DRAFT);
+    const rejected = decideApproval(pending, "p1", false, DEFAULT_SCENE, EMPTY_DRAFT, EMPTY_EVENT);
     expect("scene" in rejected && rejected.scene.colors.glow).toBe(DEFAULT_SCENE.colors.glow);
+    expect("event" in rejected && rejected.event.title).toBe(EMPTY_EVENT.title);
     expect("changed" in rejected && rejected.changed).toBe(false);
-    const accepted = decideApproval(pending, "p1", true, DEFAULT_SCENE, EMPTY_DRAFT);
+    const accepted = decideApproval(pending, "p1", true, DEFAULT_SCENE, EMPTY_DRAFT, EMPTY_EVENT);
     expect("scene" in accepted && accepted.scene.colors.glow).toBe("#22aa99");
     expect("scene" in accepted && accepted.scene.name.includes("<")).toBe(false);
     expect("draft" in accepted && accepted.draft.eventTitle).toBe("Friday");
     if (!("items" in accepted)) return;
-    expect(decideApproval(accepted.items, "p1", true, accepted.scene, accepted.draft)).toMatchObject({ error: "Already decided." });
+    expect(decideApproval(accepted.items, "p1", true, accepted.scene, accepted.draft, accepted.event)).toMatchObject({ error: "Already decided." });
+  });
+
+  it("turns an event form into one approval and applies it once", () => {
+    const form = asCard({ type: "form", id: "ev", prompt: "Event details", fields: ["eventTitle", "venue", "time", "timeZone", "date"] })!;
+    const withForm = appendAssistant([], "Details.", form);
+    const invalid = submitForm(withForm, "ev", { eventTitle: "Late Friday", date: "2026-02-31" }, EMPTY_DRAFT);
+    expect(invalid).toMatchObject({ error: "Check the form." });
+    const done = submitForm(withForm, "ev", { eventTitle: "Late Friday", venue: "The Hall", time: "21:00", timeZone: "America/Edmonton" }, EMPTY_DRAFT);
+    expect("skipModel" in done && done.skipModel).toBe(true);
+    expect("draft" in done && done.draft.eventTitle).toBe("");
+    if (!("items" in done)) return;
+    const accepted = decideApproval(done.items, "ev-apply", true, DEFAULT_SCENE, EMPTY_DRAFT, EMPTY_EVENT);
+    expect("event" in accepted && accepted.event.title).toBe("Late Friday");
+    expect("event" in accepted && accepted.event.venue).toBe("The Hall");
+    expect("event" in accepted && accepted.event.timeZone).toBe("America/Edmonton");
+    if (!("items" in accepted)) return;
+    expect(decideApproval(accepted.items, "ev-apply", true, accepted.scene, accepted.draft, accepted.event)).toMatchObject({ error: "Already decided." });
   });
 
   it("disables an older pending card when a new one of the same kind arrives", () => {

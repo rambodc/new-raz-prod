@@ -1,11 +1,23 @@
+import { sanitizeEventPatch, sanitizeGuestOps, STYLES, validDate, validTime } from "./event.js";
 import { sanitizeScene } from "./sceneSchema.js";
 
 /** Non-secret session fields. Passwords and account data are not accepted. */
 export const DRAFT_FIELDS = {
   artistName: { label: "Artist name", max: 40 },
   eventTitle: { label: "Event title", max: 80 },
+  description: { label: "Description", max: 280 },
+  date: { label: "Date", max: 10 },
+  time: { label: "Time", max: 5 },
+  timeZone: { label: "Time zone", max: 40 },
+  venue: { label: "Venue", max: 80 },
   vibe: { label: "Vibe", max: 48 },
   details: { label: "Details", max: 200 },
+};
+
+export const GUEST_FIELDS = {
+  guestName: { label: "Guest name", max: 40 },
+  guestGroup: { label: "Group", max: 24 },
+  guestStatus: { label: "Status", max: 8 },
 };
 
 const ID = /^[a-zA-Z0-9_-]{1,40}$/;
@@ -57,7 +69,8 @@ export function sanitizeCard(input) {
     const fields = [];
     const list = Array.isArray(source.fields) ? source.fields : [];
     for (const key of list) {
-      if (typeof key !== "string" || !Object.hasOwn(DRAFT_FIELDS, key) || fields.includes(key)) continue;
+      if (typeof key !== "string" || fields.includes(key)) continue;
+      if (!Object.hasOwn(DRAFT_FIELDS, key) && !Object.hasOwn(GUEST_FIELDS, key)) continue;
       fields.push(key);
     }
     if (!fields.length) return null;
@@ -67,8 +80,12 @@ export function sanitizeCard(input) {
   const proposal = source.proposal && typeof source.proposal === "object" ? /** @type {Record<string, unknown>} */ (source.proposal) : {};
   const scene = sanitizeScene(proposal.scene);
   const draft = sanitizeDraft(proposal.draft);
-  if (!Object.keys(scene).length && !Object.keys(draft).length) return null;
-  return { type, id, prompt, proposal: { scene, draft } };
+  const event = sanitizeEventPatch(proposal.event);
+  if (STYLES.includes(proposal.style)) event.style = proposal.style;
+  const guests = sanitizeGuestOps(proposal.guests);
+  const hasGuests = guests.add.length + guests.set.length > 0;
+  if (!Object.keys(scene).length && !Object.keys(draft).length && !Object.keys(event).length && !hasGuests) return null;
+  return { type, id, prompt, proposal: { scene, draft, event, guests } };
 }
 
 export function validateDraftInput(fields, values) {
@@ -77,11 +94,15 @@ export function validateDraftInput(fields, values) {
   /** @type {Record<string, string>} */
   const clean = {};
   for (const key of fields) {
-    if (!Object.hasOwn(DRAFT_FIELDS, key)) continue;
-    const text = plain(values?.[key], DRAFT_FIELDS[key].max);
-    const required = key !== "details";
+    const spec = DRAFT_FIELDS[key] || GUEST_FIELDS[key];
+    if (!spec) continue;
+    const text = plain(values?.[key], spec.max);
+    const required = key === "artistName" || key === "guestName";
     if (!text && required) errors[key] = "Add this before continuing.";
-    else if (text) clean[key] = text;
+    else if (key === "guestStatus" && text && !["invited", "yes", "no", "maybe"].includes(text.toLowerCase())) errors[key] = "Use invited, yes, no, or maybe.";
+    else if (key === "date" && text && !validDate(text)) errors[key] = "Use a real date as YYYY-MM-DD.";
+    else if (key === "time" && text && !validTime(text)) errors[key] = "Use 24-hour time as HH:MM.";
+    else if (text) clean[key] = key === "guestStatus" ? text.toLowerCase() : text;
   }
   return { ok: Object.keys(errors).length === 0, errors, clean };
 }
