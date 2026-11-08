@@ -1,12 +1,16 @@
-import { answerGuestQuestion, proposalFromText } from "../../functions/lib/event.js";
+import { answerGuestQuestion, fieldsFromAsk, proposalFromText } from "../../functions/lib/event.js";
 import { asCard, type Card } from "../chat/flow";
 import type { EventPage } from "./types";
+
+function browserToday() {
+  return new Date().toISOString().slice(0, 10);
+}
 
 export function localTurn(event: EventPage, text: string, nonce: number): { reply: string; card: Card | null } | null {
   const id = (name: string) => `${name}-${nonce}`.slice(0, 40);
   if (text === "The event") {
     return {
-      reply: "Add the details you want on the page. Accept applies them here.",
+      reply: "Add the title, description, and details. Accept puts them on this page.",
       card: asCard({
         type: "form",
         id: id("event"),
@@ -52,5 +56,18 @@ export function localTurn(event: EventPage, text: string, nonce: number): { repl
   }
   const guest = answerGuestQuestion(event, text);
   if (guest) return { reply: guest, card: null };
+  if (text.trim().endsWith("?")) return null;
+  const asked = fieldsFromAsk(text, browserToday());
+  if (asked.mentioned.invalid && !Object.keys(asked.patch).length) {
+    return { reply: "That isn't a real calendar day. Say the month and day again, and include the year if it is in the past.", card: null };
+  }
+  if (Object.keys(asked.patch).length) {
+    return {
+      reply: asked.mentioned.invalid
+        ? "That date isn't a real calendar day, so it was left off. Accept to apply the other details. Nothing changes until you do."
+        : "Accept to update this page. Nothing is sent or booked.",
+      card: asCard({ type: "approval", id: id("cmd"), prompt: "Apply this to the event page?", proposal: { event: asked.patch } }),
+    };
+  }
   return null;
 }

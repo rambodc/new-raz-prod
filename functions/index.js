@@ -4,7 +4,9 @@ import { getStorage } from "firebase-admin/storage";
 import { HttpsError, onCall, onRequest } from "firebase-functions/v2/https";
 import { defineSecret } from "firebase-functions/params";
 import { CheckInError, MAX_IMAGE_BYTES, parseInput, performCheckIn, sniffImageType, validArtistId } from "./lib/checkin.js";
+import { imageBuckets, IMAGE_MODEL, handleImageRequest } from "./lib/images.js";
 import { buckets, DEFAULT_MODEL, handleSceneChat } from "./lib/sceneChat.js";
+import { SEARCH_MODEL } from "./lib/webSearch.js";
 
 const BUCKET = "new-raz-prod.firebasestorage.app";
 const options = { region: "us-central1", maxInstances: 10 };
@@ -12,7 +14,7 @@ const options = { region: "us-central1", maxInstances: 10 };
 initializeApp({ storageBucket: BUCKET });
 
 /** Bump when the deployed functions change, so a deploy can be confirmed end to end. */
-export const FUNCTIONS_VERSION = "2026.11.08-scene-chat-2";
+export const FUNCTIONS_VERSION = "2026.11.08-page-editor-1";
 
 const xaiKey = defineSecret("XAI_API_KEY");
 
@@ -33,19 +35,47 @@ export const sceneChat = onRequest(
       store: buckets,
       apiKey: xaiKey.value(),
       model: process.env.XAI_MODEL || DEFAULT_MODEL,
+      searchModel: process.env.XAI_SEARCH_MODEL || SEARCH_MODEL,
       fetchImpl: fetch,
     });
-    res.set("Cache-Control", "no-store");
-    if (result.allowOrigin) {
-      res.set("Access-Control-Allow-Origin", result.allowOrigin);
-      res.set("Vary", "Origin");
-    }
-    for (const [name, value] of Object.entries(result.extraHeaders)) res.set(name, value);
-    if (result.status === 204) {
-      res.status(204).send("");
-      return;
-    }
-    res.status(result.status).json(result.body);
+    writeResult(res, result);
+  },
+);
+
+function writeResult(res, result) {
+  res.set("Cache-Control", "no-store");
+  if (result.allowOrigin) {
+    res.set("Access-Control-Allow-Origin", result.allowOrigin);
+    res.set("Vary", "Origin");
+  }
+  for (const [name, value] of Object.entries(result.extraHeaders)) res.set(name, value);
+  if (result.status === 204) {
+    res.status(204).send("");
+    return;
+  }
+  res.status(result.status).json(result.body);
+}
+
+/**
+ * One image generation or edit. Separate from chat so a photo cannot use the text allowance.
+ * The same Cloud Secret is read here. The browser never receives it.
+ */
+export const sceneImage = onRequest(
+  { region: "us-central1", timeoutSeconds: 90, memory: "512MiB", maxInstances: 2, secrets: [xaiKey], cors: false, invoker: "public" },
+  async (req, res) => {
+    const result = await handleImageRequest({
+      method: req.method,
+      origin: req.get("origin") || "",
+      ip: req.ip || req.get("x-forwarded-for") || "",
+      body: req.body,
+      rawLength: req.rawBody?.length ?? 0,
+      now: Date.now(),
+      store: imageBuckets,
+      apiKey: xaiKey.value(),
+      model: process.env.XAI_IMAGE_MODEL || IMAGE_MODEL,
+      fetchImpl: fetch,
+    });
+    writeResult(res, result);
   },
 );
 

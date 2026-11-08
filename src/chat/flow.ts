@@ -18,9 +18,13 @@ export type Card =
       status: CardStatus;
     };
 
+export type SourceLink = { url: string; title: string; host: string };
+
 export type TranscriptItem =
   | { kind: "text"; role: "user" | "assistant" | "error"; text: string }
-  | { kind: "card"; card: Card };
+  | { kind: "card"; card: Card }
+  | { kind: "sources"; sources: SourceLink[] }
+  | { kind: "image"; imageId: string };
 
 export const EMPTY_DRAFT: Draft = { artistName: "", eventTitle: "", vibe: "", details: "" };
 

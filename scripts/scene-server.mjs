@@ -1,5 +1,7 @@
 import { createServer } from "node:http";
+import { handleImageRequest, IMAGE_MODEL } from "../functions/lib/images.js";
 import { handleSceneChat } from "../functions/lib/sceneChat.js";
+import { SEARCH_MODEL } from "../functions/lib/webSearch.js";
 
 const port = Number(process.env.PORT || 8787);
 const store = new Map();
@@ -16,7 +18,8 @@ createServer(async (req, res) => {
       body = null;
     }
   }
-  const result = await handleSceneChat({
+  const path = (req.url || "").split("?")[0];
+  const shared = {
     method: req.method,
     origin: req.headers.origin || "",
     ip: req.socket.remoteAddress || "",
@@ -25,9 +28,11 @@ createServer(async (req, res) => {
     now: Date.now(),
     store,
     apiKey: process.env.XAI_API_KEY || "",
-    model: process.env.XAI_MODEL || "grok-4.20-0309-non-reasoning",
     fetchImpl: fetch,
-  });
+  };
+  const result = path === "/api/image"
+    ? await handleImageRequest({ ...shared, model: process.env.XAI_IMAGE_MODEL || IMAGE_MODEL })
+    : await handleSceneChat({ ...shared, model: process.env.XAI_MODEL || "grok-4.20-0309-non-reasoning", searchModel: process.env.XAI_SEARCH_MODEL || SEARCH_MODEL });
   if (result.allowOrigin) {
     res.setHeader("Access-Control-Allow-Origin", result.allowOrigin);
     res.setHeader("Vary", "Origin");
