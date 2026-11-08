@@ -139,5 +139,5 @@ test("artist images are recognised by their first bytes, not their name", () => 
 });
 
 test("the functions report a version", () => {
-  assert.match(FUNCTIONS_VERSION, /fan-counter/);
+  assert.match(FUNCTIONS_VERSION, /scene-chat/);
 });

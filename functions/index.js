@@ -1,8 +1,10 @@
 import { initializeApp } from "firebase-admin/app";
 import { getFirestore, Timestamp } from "firebase-admin/firestore";
 import { getStorage } from "firebase-admin/storage";
-import { HttpsError, onCall } from "firebase-functions/v2/https";
+import { HttpsError, onCall, onRequest } from "firebase-functions/v2/https";
+import { defineSecret } from "firebase-functions/params";
 import { CheckInError, MAX_IMAGE_BYTES, parseInput, performCheckIn, sniffImageType, validArtistId } from "./lib/checkin.js";
+import { buckets, DEFAULT_MODEL, handleSceneChat } from "./lib/sceneChat.js";
 
 const BUCKET = "new-raz-prod.firebasestorage.app";
 const options = { region: "us-central1", maxInstances: 10 };
@@ -10,7 +12,42 @@ const options = { region: "us-central1", maxInstances: 10 };
 initializeApp({ storageBucket: BUCKET });
 
 /** Bump when the deployed functions change, so a deploy can be confirmed end to end. */
-export const FUNCTIONS_VERSION = "2026.10.28-fan-counter";
+export const FUNCTIONS_VERSION = "2026.11.08-scene-chat";
+
+const xaiKey = defineSecret("XAI_API_KEY");
+
+/**
+ * Public text chat for the test homepage. The Grok key is a Cloud Secret, never a client value.
+ * Creating the secret is required before this function can deploy.
+ */
+export const sceneChat = onRequest(
+  { ...options, timeoutSeconds: 30, memory: "256MiB", maxInstances: 3, secrets: [xaiKey], cors: false, invoker: "public" },
+  async (req, res) => {
+    const result = await handleSceneChat({
+      method: req.method,
+      origin: req.get("origin") || "",
+      ip: req.ip || req.get("x-forwarded-for") || "",
+      body: req.body,
+      rawLength: req.rawBody?.length ?? 0,
+      now: Date.now(),
+      store: buckets,
+      apiKey: xaiKey.value(),
+      model: process.env.XAI_MODEL || DEFAULT_MODEL,
+      fetchImpl: fetch,
+    });
+    res.set("Cache-Control", "no-store");
+    if (result.allowOrigin) {
+      res.set("Access-Control-Allow-Origin", result.allowOrigin);
+      res.set("Vary", "Origin");
+    }
+    for (const [name, value] of Object.entries(result.extraHeaders)) res.set(name, value);
+    if (result.status === 204) {
+      res.status(204).send("");
+      return;
+    }
+    res.status(result.status).json(result.body);
+  },
+);
 
 function toHttpsError(error) {
   if (error instanceof CheckInError) {

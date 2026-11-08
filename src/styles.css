@@ -1,0 +1,240 @@
+:root {
+  color-scheme: dark;
+  --base: #c4496a;
+  --glow: #ff8b62;
+  --deep: #2a0c2e;
+  --warmth: 0.72;
+  --intensity: 0.82;
+  --softness: 48px;
+  --drift: 22s;
+  --keyboard: 0px;
+  --portrait-x: 0%;
+  --portrait-y: 0%;
+  --portrait-scale: 1;
+  font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+  background: var(--deep);
+  color: white;
+}
+
+* { box-sizing: border-box; }
+
+html, body, #root {
+  margin: 0;
+  height: 100%;
+  background: var(--deep);
+}
+
+body { overflow: hidden; }
+
+button, input { font: inherit; color: inherit; }
+
+.stage {
+  position: relative;
+  height: 100%;
+  height: 100dvh;
+  overflow: hidden;
+  background:
+    radial-gradient(70% 55% at 50% 18%, color-mix(in srgb, var(--glow) calc(var(--intensity) * 78%), white) 0%, transparent 68%),
+    radial-gradient(55% 45% at 78% 62%, color-mix(in srgb, var(--base) 85%, var(--glow)) 0%, transparent 70%),
+    var(--deep);
+}
+
+.warmth,
+.cool {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+
+.warmth {
+  background: linear-gradient(180deg, rgba(255, 196, 140, 0.0), rgba(255, 170, 90, 0.55));
+  opacity: var(--warmth);
+}
+
+.cool {
+  background: linear-gradient(180deg, rgba(80, 120, 255, 0.28), transparent 55%);
+  opacity: calc(1 - var(--warmth));
+}
+
+.blob {
+  position: absolute;
+  width: 46vw;
+  height: 46vw;
+  max-width: 280px;
+  max-height: 280px;
+  border-radius: 50%;
+  background: radial-gradient(circle, color-mix(in srgb, var(--glow) 70%, white), transparent 68%);
+  filter: blur(var(--softness));
+  opacity: calc(0.28 + var(--intensity) * 0.35);
+  transform: translate(-50%, -50%);
+  animation: drift var(--drift) ease-in-out infinite alternate;
+  pointer-events: none;
+}
+
+.vignette {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background: radial-gradient(80% 70% at 50% 42%, transparent 40%, rgba(0, 0, 0, 0.38) 100%);
+}
+
+.frame {
+  position: relative;
+  z-index: 1;
+  height: 100%;
+  width: min(100%, 480px);
+  margin: 0 auto;
+  display: flex;
+  flex-direction: column;
+  padding:
+    calc(12px + env(safe-area-inset-top))
+    20px
+    calc(18px + env(safe-area-inset-bottom) + var(--keyboard));
+}
+
+.top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  min-height: 44px;
+}
+
+.mark {
+  margin: 0;
+  font-size: 1.05rem;
+  font-weight: 560;
+  letter-spacing: -0.03em;
+}
+
+.photo {
+  min-height: 44px;
+  padding: 0 16px;
+  border-radius: 999px;
+  border: 1px solid rgba(255, 255, 255, 0.45);
+  background: transparent;
+  letter-spacing: 0.08em;
+  font-size: 0.78rem;
+  text-transform: uppercase;
+}
+
+.photo:focus-visible,
+.send:focus-visible,
+.composer input:focus-visible {
+  outline: 2px solid white;
+  outline-offset: 3px;
+}
+
+.world {
+  flex: 1;
+  min-height: 0;
+  display: grid;
+  place-items: end center;
+  position: relative;
+}
+
+.cutout {
+  width: min(92%, 420px);
+  max-height: 100%;
+  object-fit: contain;
+  object-position: center bottom;
+  transform: translate(var(--portrait-x), var(--portrait-y)) scale(var(--portrait-scale));
+  transform-origin: center bottom;
+  -webkit-mask-image: linear-gradient(to bottom, #000 72%, transparent 100%);
+  mask-image: linear-gradient(to bottom, #000 72%, transparent 100%);
+  filter: drop-shadow(0 24px 40px rgba(0, 0, 0, 0.28));
+}
+
+.stage.keyboard-open .cutout {
+  width: min(70%, 280px);
+}
+
+.copy {
+  text-align: center;
+  margin-top: -8px;
+  padding-bottom: 8px;
+}
+
+.copy h1 {
+  margin: 0;
+  font-size: clamp(3.2rem, 14vw, 4.6rem);
+  font-weight: 600;
+  letter-spacing: -0.045em;
+  line-height: 0.95;
+}
+
+.copy p {
+  margin: 8px 0 0;
+  font-size: 1.02rem;
+  font-weight: 450;
+  color: rgba(255, 255, 255, 0.86);
+}
+
+.reply {
+  min-height: 0;
+  margin: 0 6px 10px;
+  text-align: center;
+  font-size: 0.98rem;
+  line-height: 1.35;
+  color: rgba(255, 255, 255, 0.92);
+}
+
+.reply.error { color: #ffe1c4; }
+
+.composer {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 64px;
+  padding: 8px 8px 8px 18px;
+  border-radius: 999px;
+  border: 1px solid rgba(255, 255, 255, 0.34);
+  background: rgba(40, 16, 36, 0.28);
+  backdrop-filter: blur(18px);
+  -webkit-backdrop-filter: blur(18px);
+}
+
+.composer input {
+  flex: 1;
+  min-width: 0;
+  border: 0;
+  background: transparent;
+  font-size: 16px;
+  padding: 8px 0;
+}
+
+.composer input::placeholder { color: rgba(255, 255, 255, 0.72); }
+
+.send {
+  border: 0;
+  border-radius: 999px;
+  background: white;
+  color: #24121f;
+  min-height: 48px;
+  width: 48px;
+  font-size: 1.2rem;
+}
+
+.file {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+}
+
+.status {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+}
+
+@keyframes drift {
+  from { translate: -4% 0; }
+  to { translate: 6% -8%; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .blob { animation: none; }
+}
