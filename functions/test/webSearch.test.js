@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { handleSceneChat, LIMITS } from "../lib/sceneChat.js";
-import { SEARCH_LIMITS, SEARCH_MODEL } from "../lib/webSearch.js";
+import { SEARCH_LIMITS, SEARCH_MODEL, CHAT_ROUTE_BUDGET_SEC } from "../lib/webSearch.js";
 
 const PNG = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==";
 
@@ -105,6 +105,9 @@ test("search has its own cap inside the text allowance", async () => {
   assert.equal(SEARCH_LIMITS.perIp, 30);
   assert.ok(SEARCH_LIMITS.perIp < LIMITS.perIp);
   assert.equal(SEARCH_MODEL, "grok-4.7");
+  assert.ok(SEARCH_LIMITS.timeoutMs >= 35_000 && SEARCH_LIMITS.timeoutMs <= 45_000);
+  assert.ok(CHAT_ROUTE_BUDGET_SEC < 60);
+  assert.ok(CHAT_ROUTE_BUDGET_SEC * 1000 > SEARCH_LIMITS.timeoutMs);
   const store = new Map();
   store.set("search:203.0.113.40", Array.from({ length: SEARCH_LIMITS.perIp }, () => 50_000));
   let called = false;

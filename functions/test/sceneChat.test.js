@@ -371,3 +371,31 @@ test("an impossible day does not turn into a different date", async () => {
   assert.equal(/march|2027/i.test(result.body.reply), false);
   assert.match(result.body.reply, /isn't a real calendar day/);
 });
+
+test("a model approval that only names the clock still keeps the title, venue, and description", async () => {
+  const ask = "Set the title to Midnight Drop, the venue to Sample Lounge, on Dec 31 at 21:00, and the description to A quiet late set.";
+  const result = await call({
+    now: Date.parse("2026-11-08T18:00:00Z"),
+    body: { messages: [{ role: "user", content: ask }] },
+    fetchImpl: modelCard({
+      reply: "Proposal ready.",
+      scene: {},
+      card: {
+        type: "approval",
+        id: "partial-1",
+        prompt: "Use this night?",
+        proposal: { event: { date: "2026-12-31", time: "21:00" } },
+      },
+    }),
+  });
+  assert.equal(result.status, 200);
+  assert.equal(result.body.card.type, "approval");
+  assert.deepEqual(result.body.card.proposal.event, {
+    title: "Midnight Drop",
+    venue: "Sample Lounge",
+    description: "A quiet late set",
+    date: "2026-12-31",
+    time: "21:00",
+  });
+  assert.deepEqual(result.body.scene, {});
+});

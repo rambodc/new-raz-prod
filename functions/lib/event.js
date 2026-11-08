@@ -247,6 +247,37 @@ export function cleanCommandValue(raw) {
   return value.trim();
 }
 
+const FIELD_LABEL = String.raw`(?:please\s+)?(?:set\s+|change\s+|update\s+)?(?:the\s+)?(title|venue|description|artist(?:\s+name)?)(?:\s+(?:to|as|is)\s+|\s*:\s*|\s+)`;
+const FIELD_START = new RegExp(String.raw`(?:^|[,;]\s*|\band\s+)${FIELD_LABEL}`, "gi");
+
+function withoutWhen(value) {
+  return value
+    .replace(/,\s*(?:on\s+)?(?:\d{1,2}(?:st|nd|rd|th)?\s+)?(?:jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|may|jun(?:e)?|jul(?:y)?|aug(?:ust)?|sep(?:t|tember)?|oct(?:ober)?|nov(?:ember)?|dec(?:ember)?)\d*.*$/i, "")
+    .replace(/\s+\bon\s+(?:jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|may|jun(?:e)?|jul(?:y)?|aug(?:ust)?|sep(?:t|tember)?|oct(?:ober)?|nov(?:ember)?|dec(?:ember)?|\d).*$/i, "")
+    .replace(/,?\s+\bat\s+\d{1,2}:\d{2}.*$/i, "")
+    .replace(/[,;\s]+(?:and)?\s*$/i, "")
+    .trim();
+}
+
+/** Title, venue, description, or artist written as labels in one sentence. */
+export function labeledEventFields(raw) {
+  const text = plain(String(raw ?? ""), 500);
+  const marks = [];
+  for (const match of text.matchAll(FIELD_START)) {
+    const word = match[1].toLowerCase().startsWith("artist") ? "artistName" : match[1].toLowerCase();
+    marks.push({ key: word, at: match.index, from: match.index + match[0].length });
+  }
+  /** @type {Record<string, string>} */
+  const fields = {};
+  marks.forEach((mark, index) => {
+    const end = index + 1 < marks.length ? marks[index + 1].at : text.length;
+    const chunk = text.slice(mark.from, end).replace(/[,;\s]+(?:and)?\s*$/i, "");
+    const value = cleanCommandValue(mark.key === "description" ? chunk : withoutWhen(chunk));
+    if (value && !fields[mark.key]) fields[mark.key] = value;
+  });
+  return fields;
+}
+
 /**
  * Fields a person actually named in one sentence, for merging onto a proposal.
  * A date-only sentence does not invent a title or venue.
@@ -256,19 +287,21 @@ export function fieldsFromAsk(raw, today) {
   const text = plain(String(raw ?? ""), 500);
   const mentioned = resolveMentionedDate(text, today);
   /** @type {EventPatch} */
-  const patch = {};
+  const patch = { ...labeledEventFields(text) };
   if (mentioned.date) patch.date = mentioned.date;
   const time = text.match(/(?<!\d-)(?:\bat\s+)?([01]?\d|2[0-3]):([0-5]\d)\b/i);
   if (time) patch.time = `${time[1].padStart(2, "0")}:${time[2]}`;
-  const body = text.replace(/^(?:please\s+)?(?:(?:can|could|would)\s+(?:we|you)\s+)?(?:do|make|set(?:\s+up)?|put|plan)\s+/i, "");
-  const compound = body.match(/^(.+?)\s+at\s+(.+?)\s+on\s+\S/i);
-  if (compound) {
-    const title = plain(compound[1], 80);
-    const venue = plain(compound[2], 80);
-    const clockOnly = /^\d{1,2}:\d{2}$/;
-    const aside = /\b(?:but|please|let me)\b/i;
-    if (title && !clockOnly.test(title) && !aside.test(title)) patch.title = title;
-    if (venue && !clockOnly.test(venue) && !aside.test(venue)) patch.venue = venue;
+  if (!patch.title && !patch.venue) {
+    const body = text.replace(/^(?:please\s+)?(?:(?:can|could|would)\s+(?:we|you)\s+)?(?:do|make|set(?:\s+up)?|put|plan)\s+/i, "");
+    const compound = body.match(/^(.+?)\s+at\s+(.+?)\s+on\s+\S/i);
+    if (compound) {
+      const title = plain(compound[1], 80);
+      const venue = plain(compound[2], 80);
+      const clockOnly = /^\d{1,2}:\d{2}$/;
+      const aside = /\b(?:but|please|let me)\b/i;
+      if (title && !clockOnly.test(title) && !aside.test(title)) patch.title = title;
+      if (venue && !clockOnly.test(venue) && !aside.test(venue)) patch.venue = venue;
+    }
   }
   return { patch: sanitizeEventPatch(patch), mentioned };
 }
@@ -290,6 +323,7 @@ export function proposalFromText(raw) {
     if (!match) continue;
     const value = key === "date" || key === "time" ? match[1] : cleanCommandValue(match[1]);
     if (!value) return null;
+    if (key !== "description" && /\b(?:title|venue|description|artist)\b/i.test(value)) continue;
     const event = sanitizeEventPatch({ [key]: value });
     return event[key] ? { event } : null;
   }

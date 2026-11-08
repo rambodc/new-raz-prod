@@ -43,6 +43,49 @@ function blobToBase64(blob: Blob): Promise<string> {
   });
 }
 
+async function postImage(body: Record<string, unknown>, signal: AbortSignal) {
+  const response = await fetch("/api/image", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+    signal,
+  });
+  const data = (await response.json().catch(() => null)) as {
+    status?: unknown;
+    requestId?: unknown;
+    image?: unknown;
+    mime?: unknown;
+    kind?: unknown;
+    model?: unknown;
+    message?: unknown;
+  } | null;
+  if (!response.ok && response.status !== 202) {
+    throw new Error(data && typeof data.message === "string" ? data.message : "The image provider didn't answer.");
+  }
+  return data;
+}
+
+function asImage(data: { image?: unknown; mime?: unknown; kind?: unknown; model?: unknown } | null): ImageResult | null {
+  if (!data || typeof data.image !== "string") return null;
+  if (data.mime !== "image/jpeg" && data.mime !== "image/png" && data.mime !== "image/webp") return null;
+  if (data.kind !== "ai-edited" && data.kind !== "ai-generated") return null;
+  return { image: data.image, mime: data.mime, kind: data.kind, model: typeof data.model === "string" ? data.model : "" };
+}
+
+function wait(ms: number, signal: AbortSignal) {
+  return new Promise<void>((resolve, reject) => {
+    const timer = setTimeout(resolve, ms);
+    signal.addEventListener(
+      "abort",
+      () => {
+        clearTimeout(timer);
+        reject(new DOMException("Aborted", "AbortError"));
+      },
+      { once: true },
+    );
+  });
+}
+
 /** One explicit generation or edit. The provider key stays on the server. */
 export async function requestImage(input: {
   action: "generate" | "edit";
@@ -60,19 +103,22 @@ export async function requestImage(input: {
     if (!input.blob) throw new Error("Choose a photo to edit.");
     body.image = { data: await blobToBase64(input.blob) };
   }
-  const response = await fetch("/api/image", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(body),
-    signal: input.signal,
-  });
-  const data = (await response.json().catch(() => null)) as { image?: unknown; mime?: unknown; kind?: unknown; model?: unknown; message?: unknown } | null;
-  if (!response.ok) throw new Error(data && typeof data.message === "string" ? data.message : "The image provider didn't answer.");
-  if (typeof data?.image !== "string" || (data.mime !== "image/jpeg" && data.mime !== "image/png" && data.mime !== "image/webp")) {
+  const started = await postImage(body, input.signal);
+  const immediate = asImage(started);
+  if (immediate) return immediate;
+  if (input.action !== "generate" || started?.status !== "pending" || typeof started.requestId !== "string") {
     throw new Error("The image provider didn't return an image.");
   }
-  if (data.kind !== "ai-edited" && data.kind !== "ai-generated") throw new Error("The image provider didn't return an image.");
-  return { image: data.image, mime: data.mime, kind: data.kind, model: typeof data.model === "string" ? data.model : "" };
+  const requestId = started.requestId;
+  const deadline = Date.now() + 180_000;
+  while (Date.now() < deadline) {
+    const polled = await postImage({ action: "poll", requestId }, input.signal);
+    const ready = asImage(polled);
+    if (ready) return ready;
+    if (polled?.status !== "pending") throw new Error("The image provider didn't return an image.");
+    await wait(2500, input.signal);
+  }
+  throw new Error("The image is still being made. It was not added. Try again if you want another.");
 }
 
 export function imageBlob(data: string, mime: string): Blob {

@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { calendarToday, cleanCommandValue, fieldsFromAsk, proposalFromText, resolveMentionedDate, zoneForEvent } from "../lib/event.js";
+import { calendarToday, cleanCommandValue, fieldsFromAsk, labeledEventFields, proposalFromText, resolveMentionedDate, zoneForEvent } from "../lib/event.js";
 
 const NOV_8_2026 = Date.parse("2026-11-08T18:00:00Z");
 
@@ -69,4 +69,24 @@ test("a venue instruction is not the venue, and a quoted value stays whole", () 
   assert.equal(proposalFromText('Set the venue to "The Blue Room, but let me approve it first."').event.venue, "The Blue Room, but let me approve it first.");
   assert.equal(proposalFromText("Set the venue to The Blue Room, East Hall").event.venue, "The Blue Room, East Hall");
   assert.equal(proposalFromText("Set the venue to The Blue Room or The Hall"), null);
+});
+
+test("labeled title, venue, and description stay with the date and time", () => {
+  const today = "2026-11-08";
+  const sentence = "Set the title to Midnight Drop, the venue to Sample Lounge, on Dec 31 at 21:00, and the description to A quiet late set.";
+  assert.deepEqual(fieldsFromAsk(sentence, today).patch, {
+    title: "Midnight Drop",
+    venue: "Sample Lounge",
+    description: "A quiet late set",
+    date: "2026-12-31",
+    time: "21:00",
+  });
+  const compact = fieldsFromAsk("title Midnight Drop, venue Sample Lounge, Dec31 at 21:00, description A quiet late set", today);
+  assert.equal(compact.patch.title, "Midnight Drop");
+  assert.equal(compact.patch.venue, "Sample Lounge");
+  assert.equal(compact.patch.description, "A quiet late set");
+  assert.equal(compact.patch.date, "2026-12-31");
+  assert.equal(compact.patch.time, "21:00");
+  assert.equal(labeledEventFields("Set the venue to The Blue Room, East Hall").venue, "The Blue Room, East Hall");
+  assert.deepEqual(fieldsFromAsk("Dec 31", today).patch, { date: "2026-12-31" });
 });

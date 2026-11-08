@@ -16,7 +16,10 @@ export const SEARCH_LIMITS = {
   maxTitle: 120,
   maxOutputTokens: 500,
   maxTurns: 2,
+  /** Firebase Hosting drops a rewrite at 60s. Stay under that, above the 20s provider calls we measured. */
+  timeoutMs: 40_000,
 };
+export const CHAT_ROUTE_BUDGET_SEC = 55;
 
 const SYSTEM = [
   "Answer one public question using the web_search tool before you reply.",
@@ -155,7 +158,7 @@ export async function handleWebSearch({ query, apiKey, model, fetchImpl }) {
           { role: "user", content: prepared.query },
         ],
       }),
-      signal: AbortSignal.timeout(25000),
+      signal: AbortSignal.timeout(SEARCH_LIMITS.timeoutMs),
     });
   } catch {
     return { status: 502, body: { error: "search-failed", message: "Web search didn't answer. Try again." } };
