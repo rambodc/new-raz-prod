@@ -1,17 +1,18 @@
 import { sanitizeCard, sanitizeDraft } from "./cards.js";
-import { sanitizeEventPatch } from "./event.js";
+import { calendarToday, resolveMentionedDate, sanitizeEventPatch, zoneForEvent } from "./event.js";
 import { DEFAULT_SCENE, mergeScene, sanitizeScene } from "./sceneSchema.js";
 
+/** Caps for one Cloud Function instance. A second instance has its own counters. */
 export const LIMITS = {
-  perIp: 20,
+  perIp: 1000,
   perIpWindowMs: 10 * 60 * 1000,
-  global: 200,
+  global: 10_000,
   globalWindowMs: 60 * 60 * 1000,
   maxOutputTokens: 700,
   maxMessages: 16,
+  maxMessageChars: 500,
+  maxRawBytes: 24_000,
 };
-const MAX_RAW_BYTES = 24_000;
-const MAX_MESSAGE = 500;
 export const DEFAULT_MODEL = "grok-4.20-0309-non-reasoning";
 
 const ORIGINS = new Set([
@@ -35,6 +36,8 @@ const SYSTEM = [
   "proposal.event may include title, description, date as YYYY-MM-DD, time as HH:MM, timeZone, venue, artistName, and style one of calm, editorial, soft.",
   "proposal.guests.add items are {name, group, status}. proposal.guests.set changes a name already on the list. status is invited, yes, no, or maybe.",
   "Put event, look, and guest changes in an approval. Leave scene empty when you send an approval.",
+  "Never say a change was updated, applied, or saved. The person accepts the proposal before the page changes.",
+  "For a month and day with no year, use the next date on or after the server's today. If the person writes a year, keep that year, including a past year.",
   "scene keys, only if there is no approval: colors.base, colors.glow, colors.deep as #rrggbb; light.warmth and light.intensity 0 to 1;",
   "shapes.count 3 to 7, shapes.softness and shapes.drift 0 to 1; name, line; portrait.x, portrait.y -1 to 1, portrait.scale 0.55 to 1.35.",
   "The person can answer a choice by tapping or by typing.",
@@ -78,7 +81,7 @@ function readMessages(body) {
       return { error: "That message could not be read." };
     }
     const content = item.content.replace(/[\u0000-\u0008]/g, "").trim();
-    if (!content || content.length > MAX_MESSAGE) return { error: "Keep the message under 500 characters." };
+    if (!content || content.length > LIMITS.maxMessageChars) return { error: "Keep the message under 500 characters." };
     messages.push({ role: item.role, content });
   }
   if (!messages.length || messages[messages.length - 1].role !== "user") return { error: "Send a short message." };
@@ -110,7 +113,7 @@ export async function handleSceneChat({ method, origin, ip, body, rawLength, now
   }
   if (!allowed) return { status: 403, body: { error: "origin", message: "This origin can't use chat." }, allowOrigin: null, extraHeaders };
   if (method !== "POST") return { status: 405, body: { error: "method", message: "Send a message." }, allowOrigin: allowed, extraHeaders };
-  if (rawLength > MAX_RAW_BYTES) return { status: 413, body: { error: "too-large", message: "That request is too large." }, allowOrigin: allowed, extraHeaders };
+  if (rawLength > LIMITS.maxRawBytes) return { status: 413, body: { error: "too-large", message: "That request is too large." }, allowOrigin: allowed, extraHeaders };
 
   const parsed = readMessages(body);
   if (parsed.error) return { status: 400, body: { error: "bad-input", message: parsed.error }, allowOrigin: allowed, extraHeaders };
@@ -152,6 +155,9 @@ export async function handleSceneChat({ method, origin, ip, body, rawLength, now
   const draft = sanitizeDraft(body.draft);
   const event = sanitizeEventPatch(body.event);
   const guestFacts = plainReply(body.guestFacts) || "No guest facts were provided.";
+  const asked = [...parsed.messages].reverse().find((item) => item.role === "user")?.content || "";
+  const zone = zoneForEvent(event.timeZone, asked);
+  const today = calendarToday(now, zone);
   let response;
   try {
     response = await fetchImpl("https://api.x.ai/v1/chat/completions", {
@@ -167,7 +173,7 @@ export async function handleSceneChat({ method, origin, ip, body, rawLength, now
         response_format: { type: "json_object" },
         messages: [
           { role: "system", content: SYSTEM },
-          { role: "system", content: `Current scene: ${JSON.stringify(scene)} Current event page, this browser only: ${JSON.stringify(event)} Guest facts counted in the browser: ${guestFacts} Session draft, not saved: ${JSON.stringify(draft)}` },
+          { role: "system", content: `Today is ${today} in ${zone}, from the server clock. Current scene: ${JSON.stringify(scene)} Current event page, this browser only: ${JSON.stringify(event)} Guest facts counted in the browser: ${guestFacts} Session draft, not saved: ${JSON.stringify(draft)}` },
           ...parsed.messages,
         ],
       }),
@@ -205,5 +211,49 @@ export async function handleSceneChat({ method, origin, ip, body, rawLength, now
   if (!reply && !Object.keys(patch).length && !card) {
     return { status: 502, body: { error: "grok-failed", message: "Grok didn't answer. Try again." }, allowOrigin: allowed, extraHeaders };
   }
+  ({ reply, card } = settleReply({ reply, card, patch, asked, today }));
   return { status: 200, body: { reply, scene: patch, card }, allowOrigin: allowed, extraHeaders };
+}
+
+function proposalHasWork(card) {
+  const proposal = card?.proposal;
+  if (!proposal) return false;
+  const guests = proposal.guests || { add: [], set: [] };
+  return Object.keys(proposal.event || {}).length > 0
+    || Object.keys(proposal.scene || {}).length > 0
+    || Object.keys(proposal.draft || {}).length > 0
+    || guests.add.length + guests.set.length > 0;
+}
+
+function claimsDone(reply) {
+  const text = reply.toLowerCase();
+  if (/\b(haven't|have not|hasn't|has not|didn't|did not|can't|cannot|won't|will not|not updated|not applied)\b/.test(text)) return false;
+  return /\b(updated|applied|saved)\b/.test(text) || /\bi(?:'ve| have) (?:set|changed)\b/.test(text);
+}
+
+function settleReply({ reply, card, patch, asked, today }) {
+  const mentioned = resolveMentionedDate(asked, today);
+  if (mentioned.mentioned && card?.type === "approval") {
+    if (mentioned.date) {
+      card.proposal.event.date = mentioned.date;
+      card.prompt = card.prompt.replace(/\d{4}-\d{2}-\d{2}/g, mentioned.date);
+    } else delete card.proposal.event.date;
+    if (!proposalHasWork(card)) card = null;
+  }
+  if (mentioned.date && !card) {
+    card = sanitizeCard({
+      type: "approval",
+      id: `d-${mentioned.date}`,
+      prompt: `Use ${mentioned.date} on the event page?`,
+      proposal: { event: { date: mentioned.date } },
+    });
+  }
+  if (mentioned.invalid) reply = "That isn't a real calendar day. Say the month and day again, and include the year if it is in the past.";
+  else if (mentioned.ambiguous) reply = "Which date do you mean? Use a month name, and include the year if it is in the past.";
+  else if (claimsDone(reply) && !(card == null && Object.keys(patch).length > 0)) {
+    reply = card
+      ? "Accept the proposal to change this page. Nothing is changed until you do."
+      : "Nothing was changed. Tell me what to edit and I'll ask you to accept it.";
+  }
+  return { reply, card };
 }

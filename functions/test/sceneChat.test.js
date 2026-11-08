@@ -79,23 +79,33 @@ test("a real Grok JSON reply is returned and the provider key stays out of the r
   assert.equal(JSON.stringify(result.body).includes("test-key"), false);
 });
 
-test("the per-browser cap refuses the next message and says when it resets", async () => {
+test("one browser gets 1000 messages per 10 minutes and the next one waits", async () => {
+  assert.equal(LIMITS.perIp, 1000);
+  assert.equal(LIMITS.perIpWindowMs, 10 * 60 * 1000);
+  assert.equal(LIMITS.global, 10_000);
+  assert.equal(LIMITS.globalWindowMs, 60 * 60 * 1000);
+  assert.ok(LIMITS.global >= LIMITS.perIp * (LIMITS.globalWindowMs / LIMITS.perIpWindowMs));
+  assert.equal(LIMITS.maxOutputTokens, 700);
+  assert.equal(LIMITS.maxMessages, 16);
+  assert.equal(LIMITS.maxMessageChars, 500);
+  assert.equal(LIMITS.maxRawBytes, 24_000);
   const store = new Map();
+  const start = 5_000;
+  store.set("ip:198.51.100.8", Array.from({ length: LIMITS.perIp - 1 }, (_, index) => start + index));
   let calls = 0;
   const fetchImpl = async () => {
     calls += 1;
     return { ok: true, status: 200, json: async () => ({ choices: [{ message: { content: '{"reply":"Ok.","scene":{}}' } }] }) };
   };
-  for (let i = 0; i < LIMITS.perIp; i += 1) {
-    const result = await call({ store, now: 5_000 + i, fetchImpl, ip: "198.51.100.8" });
-    assert.equal(result.status, 200);
-  }
-  const blocked = await call({ store, now: 5_000 + LIMITS.perIp, fetchImpl, ip: "198.51.100.8" });
+  const allowed = await call({ store, now: start + LIMITS.perIp - 1, fetchImpl, ip: "198.51.100.8" });
+  assert.equal(allowed.status, 200);
+  const blocked = await call({ store, now: start + LIMITS.perIp, fetchImpl, ip: "198.51.100.8" });
   assert.equal(blocked.status, 429);
   assert.equal(blocked.body.scope, "browser");
-  assert.equal(calls, LIMITS.perIp);
-  assert.match(blocked.body.message, /20 messages every 10 minutes/);
-  const later = await call({ store, now: 5_000 + LIMITS.perIpWindowMs + 1, fetchImpl, ip: "198.51.100.8" });
+  assert.equal(calls, 1);
+  assert.match(blocked.body.message, /1000 messages every 10 minutes/);
+  assert.equal(blocked.body.retryAfterSec > 0, true);
+  const later = await call({ store, now: start + LIMITS.perIpWindowMs + 1, fetchImpl, ip: "198.51.100.8" });
   assert.equal(later.status, 200);
 });
 
@@ -156,7 +166,7 @@ test("the shared cap is per server copy and names the reset", async () => {
   });
   assert.equal(blocked.status, 429);
   assert.equal(blocked.body.scope, "instance");
-  assert.match(blocked.body.message, /200 messages an hour/);
+  assert.match(blocked.body.message, /10000 messages an hour/);
   assert.equal(blocked.body.retryAfterSec > 0, true);
   assert.equal(calls, 0);
 });
@@ -209,6 +219,61 @@ test("an event proposal is allowlisted and guest facts are context only", async 
   assert.equal(result.body.card.proposal.guests.add.length, 1);
   assert.equal(result.body.card.proposal.guests.add[0].name, "Sample Jo");
   assert.equal(result.body.card.proposal.scene.name.includes("<"), false);
+});
+
+test("Dec 31 with no year becomes the next December 31, not a stale model year", async () => {
+  let sent = "";
+  const result = await call({
+    now: Date.parse("2026-11-08T18:00:00Z"),
+    body: { messages: [{ role: "user", content: "Let's do Dec31" }], event: { timeZone: "America/Edmonton" } },
+    fetchImpl: async (_url, init) => {
+      sent = init.body;
+      return {
+        ok: true,
+        status: 200,
+        json: async () => ({
+          choices: [{ message: { content: JSON.stringify({ reply: "Updated the date.", scene: {}, card: { type: "approval", id: "d1", prompt: "Use 2024-12-31?", proposal: { event: { date: "2024-12-31" } } } }) } }],
+        }),
+      };
+    },
+  });
+  assert.match(sent, /2026-11-08/);
+  assert.match(sent, /America\/Edmonton/);
+  assert.equal(result.status, 200);
+  assert.equal(result.body.card.proposal.event.date, "2026-12-31");
+  assert.equal(result.body.card.prompt.includes("2024"), false);
+  assert.equal(/\bupdated\b/i.test(result.body.reply), false);
+  assert.match(result.body.reply, /Accept/);
+});
+
+test("an explicit past year is kept and a no-change reply cannot say updated", async () => {
+  const historic = await call({
+    now: Date.parse("2026-11-08T18:00:00Z"),
+    body: { messages: [{ role: "user", content: "The show was December 31, 2024" }] },
+    fetchImpl: async () => ({
+      ok: true,
+      status: 200,
+      json: async () => ({
+        choices: [{ message: { content: JSON.stringify({ reply: "Updated.", scene: {}, card: { type: "approval", id: "d2", prompt: "Use this date?", proposal: { event: { date: "2026-12-31" } } } }) } }],
+      }),
+    }),
+  });
+  assert.equal(historic.body.card.proposal.event.date, "2024-12-31");
+  assert.equal(/\bupdated\b/i.test(historic.body.reply), false);
+
+  const empty = await call({
+    now: Date.parse("2026-11-08T18:00:00Z"),
+    body: { messages: [{ role: "user", content: "Make it feel warmer" }] },
+    fetchImpl: async () => ({
+      ok: true,
+      status: 200,
+      json: async () => ({ choices: [{ message: { content: JSON.stringify({ reply: "Updated the night.", scene: {}, card: null }) } }] }),
+    }),
+  });
+  assert.equal(empty.body.card, null);
+  assert.deepEqual(empty.body.scene, {});
+  assert.equal(/\bupdated\b/i.test(empty.body.reply), false);
+  assert.match(empty.body.reply, /Nothing was changed/);
 });
 
 test("local dev ports can call chat and a missing key is still an error", async () => {
