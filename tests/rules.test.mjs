@@ -9,7 +9,17 @@ const EMAIL = "ada@example.com";
 let testEnv;
 
 const authed = (uid, email = EMAIL) => testEnv.authenticatedContext(uid, { email }).firestore();
-const profile = (extra = {}) => ({ displayName: "Ada Lovelace", email: EMAIL, createdAt: serverTimestamp(), ...extra });
+const OWN_PHOTO = "https://firebasestorage.googleapis.com/v0/b/new-raz-prod.firebasestorage.app/o/users%2Fada%2Favatar?alt=media&token=abc";
+const profile = (extra = {}) => ({
+  firstName: "Ada",
+  lastName: "Lovelace",
+  email: EMAIL,
+  photoURL: "",
+  role: "fan",
+  createdAt: serverTimestamp(),
+  updatedAt: serverTimestamp(),
+  ...extra,
+});
 
 before(async () => {
   testEnv = await initializeTestEnvironment({
@@ -22,31 +32,48 @@ before(async () => {
 beforeEach(async () => testEnv.clearFirestore());
 after(async () => testEnv?.cleanup());
 
-async function seed(uid = "ada", data = { displayName: "Ada Lovelace", email: EMAIL, createdAt: Timestamp.fromMillis(1_700_000_000_000) }) {
-  await testEnv.withSecurityRulesDisabled(async (context) => setDoc(doc(context.firestore(), `users/${uid}`), data));
+async function seed(uid = "ada", data) {
+  const docData = data ?? {
+    firstName: "Ada",
+    lastName: "Lovelace",
+    email: EMAIL,
+    photoURL: "",
+    role: "fan",
+    createdAt: Timestamp.fromMillis(1_700_000_000_000),
+    updatedAt: Timestamp.fromMillis(1_700_000_000_000),
+  };
+  await testEnv.withSecurityRulesDisabled(async (context) => setDoc(doc(context.firestore(), `users/${uid}`), docData));
 }
 
 test("a signed-in user can create their own profile", async () => {
   await assertSucceeds(setDoc(doc(authed("ada"), "users/ada"), profile()));
 });
 
-test("a signed-in user can read and update their own profile, but not change createdAt", async () => {
+test("a signed-in user can read and update their own name, but not role, email or createdAt", async () => {
   await seed();
   const db = authed("ada");
   await assertSucceeds(getDoc(doc(db, "users/ada")));
-  await assertSucceeds(updateDoc(doc(db, "users/ada"), { displayName: "Ada King" }));
-  await assertFails(updateDoc(doc(db, "users/ada"), { createdAt: Timestamp.fromMillis(1) }));
+  await assertSucceeds(updateDoc(doc(db, "users/ada"), { firstName: "Augusta", updatedAt: serverTimestamp() }));
+  await assertSucceeds(updateDoc(doc(db, "users/ada"), { photoURL: OWN_PHOTO, updatedAt: serverTimestamp() }));
+  await assertFails(updateDoc(doc(db, "users/ada"), { createdAt: Timestamp.fromMillis(1), updatedAt: serverTimestamp() }));
+  await assertFails(updateDoc(doc(db, "users/ada"), { role: "artist", updatedAt: serverTimestamp() }));
+  await assertFails(updateDoc(doc(db, "users/ada"), { email: "someone-else@example.com", updatedAt: serverTimestamp() }));
+  await assertFails(updateDoc(doc(db, "users/ada"), { firstName: "Ada" }));
 });
 
-test("profiles reject unknown fields, wrong types, bad sizes and a spoofed email or timestamp", async () => {
+test("profiles reject unknown fields, wrong types, bad sizes, a spoofed email, a bad photo and a self-assigned role", async () => {
   const db = authed("ada");
   await assertFails(setDoc(doc(db, "users/ada"), profile({ admin: true })));
-  await assertFails(setDoc(doc(db, "users/ada"), profile({ displayName: 42 })));
-  await assertFails(setDoc(doc(db, "users/ada"), profile({ displayName: "" })));
-  await assertFails(setDoc(doc(db, "users/ada"), profile({ displayName: "x".repeat(81) })));
+  await assertFails(setDoc(doc(db, "users/ada"), profile({ firstName: 42 })));
+  await assertFails(setDoc(doc(db, "users/ada"), profile({ firstName: "" })));
+  await assertFails(setDoc(doc(db, "users/ada"), profile({ firstName: "   " })));
+  await assertFails(setDoc(doc(db, "users/ada"), profile({ lastName: "x".repeat(61) })));
   await assertFails(setDoc(doc(db, "users/ada"), profile({ email: "someone-else@example.com" })));
+  await assertFails(setDoc(doc(db, "users/ada"), profile({ role: "artist" })));
+  await assertFails(setDoc(doc(db, "users/ada"), profile({ photoURL: "javascript:alert(1)" })));
+  await assertFails(setDoc(doc(db, "users/ada"), profile({ photoURL: OWN_PHOTO.replace("ada", "bob") })));
   await assertFails(setDoc(doc(db, "users/ada"), profile({ createdAt: Timestamp.fromMillis(1_000) })));
-  await assertFails(setDoc(doc(db, "users/ada"), { displayName: "Ada", email: EMAIL }));
+  await assertFails(setDoc(doc(db, "users/ada"), { firstName: "Ada", lastName: "Lovelace", email: EMAIL }));
 });
 
 test("a user cannot read, create, update or delete another user's profile", async () => {
@@ -54,7 +81,7 @@ test("a user cannot read, create, update or delete another user's profile", asyn
   const mallory = authed("mallory", "mallory@example.com");
   await assertFails(getDoc(doc(mallory, "users/ada")));
   await assertFails(setDoc(doc(mallory, "users/ada"), profile({ email: "mallory@example.com" })));
-  await assertFails(updateDoc(doc(mallory, "users/ada"), { displayName: "Hacked" }));
+  await assertFails(updateDoc(doc(mallory, "users/ada"), { firstName: "Hacked", updatedAt: serverTimestamp() }));
   await assertFails(deleteDoc(doc(mallory, "users/ada")));
   await assertFails(setDoc(doc(authed("ada"), "users/mallory"), profile()));
 });
@@ -75,7 +102,7 @@ test("unauthenticated clients are denied everywhere", async () => {
   await assertFails(getDocs(collection(anon, "users")));
 });
 
-test("unknown collections and nested paths are denied, even for signed-in users", async () => {
+test("login codes, rate limits and other unknown paths are server-only", async () => {
   const db = authed("ada");
   await assertFails(getDoc(doc(db, "profiles/ada")));
   await assertFails(setDoc(doc(db, "profiles/ada"), { name: "Ada" }));
@@ -83,6 +110,13 @@ test("unknown collections and nested paths are denied, even for signed-in users"
   await assertFails(getDoc(doc(db, "chatRateLimits/abc")));
   await assertFails(setDoc(doc(db, "chatRateLimits/abc"), { count: 1 }));
   await assertFails(getDoc(doc(db, "artists/a1/fans/ada")));
+  await assertFails(getDoc(doc(db, "loginCodes/abc")));
+  await assertFails(setDoc(doc(db, "loginCodes/abc"), { codeHash: "nope" }));
+  await assertFails(getDoc(doc(db, "authRateLimits/email_abc")));
+  await assertFails(setDoc(doc(db, "authRateLimits/email_abc"), { count: 1 }));
+  const anon = testEnv.unauthenticatedContext().firestore();
+  await assertFails(getDoc(doc(anon, "loginCodes/abc")));
+  await assertFails(getDoc(doc(anon, "authRateLimits/ip_abc")));
 });
 
 
@@ -212,4 +246,30 @@ test("everything else in Storage stays closed", async () => {
   const signedIn = testEnv.authenticatedContext("ada").storage();
   await assertFails(getBytes(ref(anon, "uploads/sample.txt")));
   await assertFails(uploadBytes(ref(signedIn, "uploads/sample.txt"), new Uint8Array([1])));
+});
+
+test("a user can read and replace only their own avatar, as a small jpeg png or webp", async () => {
+  const jpeg = new Uint8Array([0xff, 0xd8, 0xff, 0xd9]);
+  const ada = testEnv.authenticatedContext("ada", { email: EMAIL }).storage();
+  const mallory = testEnv.authenticatedContext("mallory", { email: "mallory@example.com" }).storage();
+  const anon = testEnv.unauthenticatedContext().storage();
+  await assertSucceeds(uploadBytes(ref(ada, "users/ada/avatar"), jpeg, { contentType: "image/jpeg" }));
+  await assertSucceeds(getBytes(ref(ada, "users/ada/avatar")));
+  await assertSucceeds(uploadBytes(ref(ada, "users/ada/avatar"), new Uint8Array([0x89, 0x50, 0x4e, 0x47]), { contentType: "image/png" }));
+  await assertSucceeds(uploadBytes(ref(ada, "users/ada/avatar"), new Uint8Array([0x52, 0x49, 0x46, 0x46]), { contentType: "image/webp" }));
+  await assertFails(getBytes(ref(mallory, "users/ada/avatar")));
+  await assertFails(getBytes(ref(anon, "users/ada/avatar")));
+  await assertFails(uploadBytes(ref(mallory, "users/ada/avatar"), jpeg, { contentType: "image/jpeg" }));
+  await assertFails(uploadBytes(ref(ada, "users/mallory/avatar"), jpeg, { contentType: "image/jpeg" }));
+  await assertFails(uploadBytes(ref(anon, "users/ada/avatar"), jpeg, { contentType: "image/jpeg" }));
+  await assertFails(uploadBytes(ref(ada, "users/ada/avatar"), jpeg, { contentType: "image/gif" }));
+  await assertFails(uploadBytes(ref(ada, "users/ada/avatar"), jpeg, { contentType: "text/html" }));
+  await assertFails(uploadBytes(ref(ada, "users/ada/avatar"), new Uint8Array(0), { contentType: "image/jpeg" }));
+  await assertFails(uploadBytes(ref(ada, "users/ada/avatar"), new Uint8Array(2 * 1024 * 1024), { contentType: "image/jpeg" }));
+  await assertFails(uploadBytes(ref(ada, "users/ada/other"), jpeg, { contentType: "image/jpeg" }));
+  await assertSucceeds(deleteObject(ref(ada, "users/ada/avatar")));
+  await testEnv.withSecurityRulesDisabled(async (context) => {
+    await uploadBytes(ref(context.storage(), "users/ada/avatar"), jpeg, { contentType: "image/jpeg" });
+  });
+  await assertFails(deleteObject(ref(mallory, "users/ada/avatar")));
 });

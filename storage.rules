@@ -8,6 +8,17 @@ service firebase.storage {
       allow write: if false;
     }
 
+    // The signed-in user can read and replace only their own avatar. Images only, under 2 MB.
+    match /users/{userId}/avatar {
+      allow read: if request.auth != null && request.auth.uid == userId;
+      allow create, update: if request.auth != null
+        && request.auth.uid == userId
+        && request.resource.size > 0
+        && request.resource.size < 2 * 1024 * 1024
+        && request.resource.contentType.matches('image/(jpeg|png|webp)');
+      allow delete: if request.auth != null && request.auth.uid == userId;
+    }
+
     match /{object=**} {
       allow read, write: if false;
     }

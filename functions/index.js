@@ -1,8 +1,10 @@
 import { initializeApp } from "firebase-admin/app";
+import { getAuth } from "firebase-admin/auth";
 import { getFirestore, Timestamp } from "firebase-admin/firestore";
 import { getStorage } from "firebase-admin/storage";
 import { HttpsError, onCall, onRequest } from "firebase-functions/v2/https";
 import { defineSecret } from "firebase-functions/params";
+import { acceptLoginCode, emulatorSinkEnabled, issueLoginCode, LoginError, sendWithResend } from "./lib/loginCode.js";
 import { CheckInError, MAX_IMAGE_BYTES, parseInput, performCheckIn, sniffImageType, validArtistId } from "./lib/checkin.js";
 import { imageBuckets, IMAGE_MODEL, IMAGE_ROUTE_BUDGET_SEC, handleImageRequest } from "./lib/images.js";
 import { buckets, DEFAULT_MODEL, handleSceneChat } from "./lib/sceneChat.js";
@@ -14,9 +16,10 @@ const options = { region: "us-central1", maxInstances: 10 };
 initializeApp({ storageBucket: BUCKET });
 
 /** Bump when the deployed functions change, so a deploy can be confirmed end to end. */
-export const FUNCTIONS_VERSION = "2026.11.08-page-editor-2";
+export const FUNCTIONS_VERSION = "2026.11.09-login-code";
 
 const xaiKey = defineSecret("XAI_API_KEY");
+const resendKey = defineSecret("RESEND_API_KEY");
 
 /**
  * Public text chat for the test homepage. The Grok key is a Cloud Secret, never a client value.
@@ -125,4 +128,70 @@ export const setArtistImage = onCall({ ...options, memory: "512MiB" }, async (re
   const imageUrl = `https://firebasestorage.googleapis.com/v0/b/${BUCKET}/o/${encodeURIComponent(path)}?alt=media&v=${imageVersion}`;
   await artistRef.update({ imageUrl, imageVersion });
   return { imageUrl };
+});
+
+function clientIp(request) {
+  const ip = request.rawRequest?.ip;
+  return typeof ip === "string" && ip.length > 0 ? ip.slice(0, 64) : "unknown";
+}
+
+async function deliverLoginEmail(payload) {
+  if (emulatorSinkEnabled()) {
+    const { writeFile } = await import("node:fs/promises");
+    await writeFile("/tmp/razzberry-last-code.json", JSON.stringify({ to: payload.to, code: payload.code }));
+    return { error: null };
+  }
+  return sendWithResend(resendKey.value(), payload);
+}
+
+function toLoginHttpsError(error) {
+  if (!(error instanceof LoginError)) {
+    console.error("login function failed", error?.code || error?.name || "error");
+    return new HttpsError("internal", "Something went wrong. Try again.");
+  }
+  const messages = {
+    "bad-email": ["invalid-argument", "Enter a valid email address."],
+    "bad-code": ["invalid-argument", "Enter the 6-digit code."],
+    "too-soon": ["resource-exhausted", "Please wait a minute before requesting another code."],
+    "rate-limited": ["resource-exhausted", "Too many codes were requested. Try again later."],
+    "wrong-code": ["failed-precondition", "That code is incorrect."],
+    expired: ["failed-precondition", "That code has expired. Send a new one."],
+    "too-many-attempts": ["failed-precondition", "Too many tries. Send a new code."],
+    "send-failed": ["internal", "Could not send the email. Try again."],
+    "token-failed": ["internal", "Could not finish signing you in."],
+  };
+  const [code, message] = messages[error.reason] ?? ["internal", "Something went wrong. Try again."];
+  return new HttpsError(code, message, { reason: error.reason });
+}
+
+/** Emails a 6-digit sign-in code. The Resend key is the secret RESEND_API_KEY and is never returned. */
+export const sendLoginCode = onCall({ ...options, timeoutSeconds: 30, secrets: [resendKey], invoker: "public" }, async (request) => {
+  try {
+    return await issueLoginCode({
+      db: getFirestore(),
+      email: request.data?.email,
+      ip: clientIp(request),
+      now: Date.now(),
+      sendEmail: deliverLoginEmail,
+    });
+  } catch (error) {
+    throw toLoginHttpsError(error);
+  }
+});
+
+/** Checks the code and returns a Firebase custom token. Old user documents are replaced, not kept. */
+export const verifyLoginCode = onCall({ ...options, timeoutSeconds: 30, invoker: "public" }, async (request) => {
+  try {
+    return await acceptLoginCode({
+      db: getFirestore(),
+      auth: getAuth(),
+      email: request.data?.email,
+      code: request.data?.code,
+      now: Date.now(),
+      timestampOf: (ms) => Timestamp.fromMillis(ms),
+      projectId: process.env.GCLOUD_PROJECT || "new-raz-prod",
+    });
+  } catch (error) {
+    throw toLoginHttpsError(error);
+  }
 });

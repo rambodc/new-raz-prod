@@ -7,7 +7,7 @@ import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import App from "./App";
 
-describe("starter page", () => {
+describe("sign-in screen", () => {
   let root: Root;
   let container: HTMLDivElement;
 
@@ -22,20 +22,21 @@ describe("starter page", () => {
     container.remove();
   });
 
-  it("shows the home screen in a system sans and toggles a device", () => {
+  it("asks for an email in a sans and does not show the old home screen", () => {
     act(() => root.render(<App />));
-    expect(container.querySelector(".brand")?.textContent).toBe("Razzberry");
-    expect(container.querySelector("h1")?.textContent).toBe("25°");
-    expect(container.textContent).toContain("Light");
-    expect(container.textContent).toContain("Camera");
-    expect(container.textContent).toContain("7:00pm, Daily");
-    const light = container.querySelector("[aria-label='Outdoor light']") as HTMLButtonElement;
-    expect(light.getAttribute("aria-checked")).toBe("true");
-    act(() => light.click());
-    expect(light.getAttribute("aria-checked")).toBe("false");
+    expect(container.querySelector(".wordmark")?.textContent).toBe("Razzberry");
+    expect(container.querySelector("h1")?.textContent).toBe("Be there.");
+    expect(container.textContent).toContain("Send me a code");
+    expect(container.textContent).toContain("No password needed.");
+    expect(container.textContent).not.toContain("25°");
+    const input = container.querySelector("input[type='email']") as HTMLInputElement;
+    expect(input.placeholder).toBe("you@email.com");
     const css = readFileSync(join(process.cwd(), "src/styles.css"), "utf8");
+    expect(css).toMatch(/Inter Variable/);
     expect(css).toMatch(/ui-sans-serif/);
-    expect(css).not.toMatch(/Georgia|Iowan|Times New Roman|Palatino/);
+    expect(css).not.toMatch(/Georgia|Iowan|Times New Roman|Palatino|Didot|Garamond/);
+    expect(css).toMatch(/font-size:\s*16px/);
     expect(css).toMatch(/max-width:\s*100%/);
+    expect(css).toMatch(/#d81e5b/);
   });
 });
