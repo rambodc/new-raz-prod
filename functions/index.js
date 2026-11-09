@@ -5,6 +5,7 @@ import { getStorage } from "firebase-admin/storage";
 import { HttpsError, onCall, onRequest } from "firebase-functions/v2/https";
 import { defineSecret } from "firebase-functions/params";
 import { acceptLoginCode, emulatorSinkEnabled, issueLoginCode, LoginError, sendWithResend } from "./lib/loginCode.js";
+import { applyUserRole, RoleError } from "./lib/roles.js";
 import { CheckInError, MAX_IMAGE_BYTES, parseInput, performCheckIn, sniffImageType, validArtistId } from "./lib/checkin.js";
 import { imageBuckets, IMAGE_MODEL, IMAGE_ROUTE_BUDGET_SEC, handleImageRequest } from "./lib/images.js";
 import { buckets, DEFAULT_MODEL, handleSceneChat } from "./lib/sceneChat.js";
@@ -16,7 +17,7 @@ const options = { region: "us-central1", maxInstances: 10 };
 initializeApp({ storageBucket: BUCKET });
 
 /** Bump when the deployed functions change, so a deploy can be confirmed end to end. */
-export const FUNCTIONS_VERSION = "2026.11.09-login-code";
+export const FUNCTIONS_VERSION = "2026.11.09-roles";
 
 const xaiKey = defineSecret("XAI_API_KEY");
 const resendKey = defineSecret("RESEND_API_KEY");
@@ -176,6 +177,33 @@ export const sendLoginCode = onCall({ ...options, timeoutSeconds: 30, secrets: [
     });
   } catch (error) {
     throw toLoginHttpsError(error);
+  }
+});
+
+function toRoleHttpsError(error) {
+  if (!(error instanceof RoleError)) {
+    console.error("setUserRole failed", error?.code || error?.name || "error");
+    return new HttpsError("internal", "Could not update that role.");
+  }
+  const code = error.reason === "not-found" ? "not-found" : error.reason === "forbidden" || error.reason === "unauthenticated" ? "permission-denied" : "invalid-argument";
+  return new HttpsError(code, error.message);
+}
+
+/** Admins only (custom claim admin: true). Sets users/{uid}.role and, for a new artist, creates artists/{uid}. */
+export const setUserRole = onCall({ ...options, timeoutSeconds: 30, invoker: "public" }, async (request) => {
+  if (!request.auth) throw new HttpsError("unauthenticated", "Sign in first.");
+  try {
+    return await applyUserRole({
+      db: getFirestore(),
+      auth: getAuth(),
+      caller: request.auth,
+      email: request.data?.email,
+      role: request.data?.role,
+      now: Date.now(),
+      timestampOf: (ms) => Timestamp.fromMillis(ms),
+    });
+  } catch (error) {
+    throw toRoleHttpsError(error);
   }
 });
 

@@ -15,6 +15,19 @@ function envValue(value: string | undefined, fallback: string): string {
   return value && value.length > 0 ? value : fallback;
 }
 
+export function storageBucket(): string {
+  return envValue(import.meta.env.VITE_FIREBASE_STORAGE_BUCKET, "new-raz-prod.firebasestorage.app");
+}
+
+export function storageObjectUrl(path: string): string {
+  const encoded = encodeURIComponent(path);
+  const bucket = storageBucket();
+  if (import.meta.env.VITE_USE_EMULATORS === "true") {
+    return `http://127.0.0.1:9199/v0/b/${bucket}/o/${encoded}?alt=media`;
+  }
+  return `https://firebasestorage.googleapis.com/v0/b/${bucket}/o/${encoded}?alt=media`;
+}
+
 let pending: Promise<FirebaseClient> | null = null;
 
 export function client(): Promise<FirebaseClient> {
@@ -27,7 +40,7 @@ async function init(): Promise<FirebaseClient> {
     apiKey: envValue(import.meta.env.VITE_FIREBASE_API_KEY, "demo-api-key"),
     authDomain: envValue(import.meta.env.VITE_FIREBASE_AUTH_DOMAIN, "new-raz-prod.firebaseapp.com"),
     projectId: envValue(import.meta.env.VITE_FIREBASE_PROJECT_ID, "new-raz-prod"),
-    storageBucket: envValue(import.meta.env.VITE_FIREBASE_STORAGE_BUCKET, "new-raz-prod.firebasestorage.app"),
+    storageBucket: storageBucket(),
     messagingSenderId: envValue(import.meta.env.VITE_FIREBASE_MESSAGING_SENDER_ID, "555086285693"),
     appId: envValue(import.meta.env.VITE_FIREBASE_APP_ID, "1:555086285693:web:9b4efe2d2aa152f4849a14"),
   });

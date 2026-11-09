@@ -20,8 +20,9 @@ The concert photo is Unsplash `photo-1540039155733-5bb30b53aa14` (Unsplash Licen
 ### How it's built
 
 - **React 19 + TypeScript + Vite.** Inter, then the system sans.
-- **Firebase Auth, Firestore, Storage.** `users/{uid}` holds firstName, lastName, email, photoURL, role, createdAt, updatedAt. Avatars are `users/{uid}/avatar`, resized in the browser to about 512px.
-- **Functions** also still include check-in and artist images. The new UI does not call them.
+- **Firebase Auth, Firestore, Storage.** `users/{uid}` holds firstName, lastName, email, photoURL, role, createdAt, updatedAt. `role` is `fan` or `artist`. A person cannot change their own role. Avatars are `users/{uid}/avatar`, resized in the browser to about 512px.
+- **Artists and events.** `artists/{uid}` holds name, bio, imageURL, ownerUid, createdAt, updatedAt. `events/{eventId}` holds artistId, title, startsAt, venue, city, description, imageURL, createdAt, updatedAt. Both are public to read. Home lists upcoming events, soonest first. An artist edits their page and publishes nights. Hero images are resized in the browser and stored at `artists/{uid}/` and `events/{eventId}/`.
+- **Functions** also still include check-in and the older artist image upload. The new pages do not call them. `setUserRole` is the admin callable that sets a role.
 
 ## Local development
 
@@ -48,6 +49,21 @@ VITE_USE_EMULATORS=true npm run dev
 ```
 
 `/api/scene` and `/api/image` still proxy to `node scripts/scene-server.mjs` when that process is running. The sign-in pages do not use them.
+
+### Make someone an artist or an admin
+
+Uses Application Default Credentials and the Admin SDK. The project is `new-raz-prod`. The person must already have signed in once.
+
+```sh
+npm ci --prefix functions
+gcloud auth application-default login
+node scripts/set-role.mjs someone@example.com artist
+node scripts/set-role.mjs someone@example.com fan
+node scripts/set-role.mjs someone@example.com --admin
+node scripts/set-role.mjs someone@example.com artist --admin
+```
+
+`--admin` sets the custom claim `admin: true`. They sign in again before `setUserRole` will accept them. Setting `artist` also creates `artists/{uid}` from their name and photo if that page does not exist yet. There is no admin screen and no way to become an artist inside the app.
 
 ## Native iOS
 

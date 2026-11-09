@@ -1,9 +1,11 @@
+export type Role = "fan" | "artist";
+
 export type Profile = {
   firstName: string;
   lastName: string;
   email: string;
   photoURL: string;
-  role: string;
+  role: Role;
 };
 
 export function cleanEmail(value: string): string {
@@ -28,6 +30,6 @@ export function readProfile(data: Record<string, unknown> | undefined): Profile 
     lastName: typeof data?.lastName === "string" ? data.lastName : "",
     email: typeof data?.email === "string" ? data.email : "",
     photoURL: typeof data?.photoURL === "string" ? data.photoURL : "",
-    role: typeof data?.role === "string" ? data.role : "fan",
+    role: data?.role === "artist" ? "artist" : "fan",
   };
 }

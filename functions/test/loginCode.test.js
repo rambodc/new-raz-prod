@@ -241,6 +241,27 @@ test("a returning fan with a name does not need the name step, and a code cannot
   assert.equal(emailKey.length, 64);
 });
 
+test("an artist profile is kept on the next sign-in", async () => {
+  const auth = fakeAuth([{ uid: "nova", email: "nova@example.com", emailVerified: true }]);
+  const { db, deps } = harness({
+    seed: {
+      "users/nova": {
+        firstName: "Nova",
+        lastName: "Vale",
+        email: "nova@example.com",
+        photoURL: "https://example.com/nova.jpg",
+        role: "artist",
+      },
+    },
+  });
+  await issue(deps, "nova@example.com");
+  const result = await acceptLoginCode({ db, auth, email: "nova@example.com", code: "482017", now: deps.now + 1000, timestampOf: ts });
+  assert.equal(result.needsProfile, false);
+  assert.equal(db.store.get("users/nova").role, "artist");
+  assert.equal(db.store.get("users/nova").firstName, "Nova");
+  assert.equal(db.store.get("users/nova").photoURL, "https://example.com/nova.jpg");
+});
+
 test("expired codes and too many attempts are rejected", async () => {
   const { db, deps } = harness();
   const auth = fakeAuth();
