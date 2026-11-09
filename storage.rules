@@ -1,22 +1,75 @@
 rules_version = '2';
 service firebase.storage {
   match /b/{bucket}/o {
-    // Artist images are public to read, so a plain <img> works. Nobody can write from a client: the
-    // setArtistImage function (admins only) saves them, checks the type and caps the size at 5 MB.
+    function signedIn() {
+      return request.auth != null;
+    }
+
+    function safeId(id) {
+      return id.matches('^[A-Za-z0-9]{1,128}$');
+    }
+
+    function safeFile(name) {
+      return name.matches('^[A-Za-z0-9][A-Za-z0-9._-]{0,80}$');
+    }
+
+    function isImage() {
+      return request.resource.size > 0
+        && request.resource.size < 5 * 1024 * 1024
+        && request.resource.contentType.matches('image/(jpeg|png|webp)');
+    }
+
+    function userDoc() {
+      return /databases/(default)/documents/users/$(request.auth.uid);
+    }
+
+    function isArtistUser() {
+      return signedIn()
+        && firestore.exists(userDoc())
+        && firestore.get(userDoc()).data.role == 'artist';
+    }
+
+    function eventDoc(eventId) {
+      return /databases/(default)/documents/events/$(eventId);
+    }
+
+    function ownsEvent(eventId) {
+      return firestore.exists(eventDoc(eventId))
+        && firestore.get(eventDoc(eventId)).data.artistId == request.auth.uid;
+    }
+
+    // Artist images are public to read. Only that artist, while role == "artist", can write.
+    // Images only, under 5 MB.
     match /artists/{artistId}/{file} {
       allow read: if true;
-      allow write: if false;
+      allow create, update: if isArtistUser()
+        && safeId(artistId)
+        && request.auth.uid == artistId
+        && safeFile(file)
+        && isImage();
+      allow delete: if isArtistUser() && safeId(artistId) && request.auth.uid == artistId;
+    }
+
+    // Event images are public to read. The event document must already exist and belong to this artist.
+    match /events/{eventId}/{file} {
+      allow read: if true;
+      allow create, update: if isArtistUser()
+        && safeId(eventId)
+        && safeFile(file)
+        && isImage()
+        && ownsEvent(eventId);
+      allow delete: if isArtistUser() && safeId(eventId) && ownsEvent(eventId);
     }
 
     // The signed-in user can read and replace only their own avatar. Images only, under 2 MB.
     match /users/{userId}/avatar {
-      allow read: if request.auth != null && request.auth.uid == userId;
-      allow create, update: if request.auth != null
+      allow read: if signedIn() && request.auth.uid == userId;
+      allow create, update: if signedIn()
         && request.auth.uid == userId
         && request.resource.size > 0
         && request.resource.size < 2 * 1024 * 1024
         && request.resource.contentType.matches('image/(jpeg|png|webp)');
-      allow delete: if request.auth != null && request.auth.uid == userId;
+      allow delete: if signedIn() && request.auth.uid == userId;
     }
 
     match /{object=**} {

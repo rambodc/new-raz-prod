@@ -1,3 +1,4 @@
+import { FirebaseError } from "firebase/app";
 import { onAuthStateChanged, signInWithCustomToken, signOut } from "firebase/auth";
 import { doc, getDoc, serverTimestamp, updateDoc } from "firebase/firestore";
 import { httpsCallable, FunctionsError } from "firebase/functions";
@@ -31,6 +32,10 @@ export function explain(error: unknown): string {
     if (error.code === "functions/resource-exhausted") return "Please wait a minute before requesting another code.";
     if (error.code === "functions/unavailable" || error.code === "functions/deadline-exceeded") return "You appear to be offline. Try again.";
     if (error.code === "functions/invalid-argument") return "Check what you entered and try again.";
+  }
+  if (error instanceof FirebaseError) {
+    if (error.code.includes("permission-denied") || error.code.includes("unauthorized")) return "You don't have permission to do that.";
+    if (error.code.includes("unavailable") || error.code.includes("deadline-exceeded") || error.code.includes("network-request-failed")) return "You appear to be offline. Try again.";
   }
   if (error instanceof Error && error.message && !error.message.startsWith("Firebase")) return error.message;
   return "Something went wrong. Try again.";

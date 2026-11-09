@@ -3,7 +3,11 @@ service cloud.firestore {
   match /databases/{database}/documents {
 
     // users/{uid}: firstName, lastName, email, photoURL, role, createdAt, updatedAt.
-    // role is always "fan" and email always matches the auth token. Clients cannot change either.
+    // role is "fan" or "artist". Clients create fans only and can never change role or email.
+    // artists/{uid}: name, bio, imageURL, ownerUid, createdAt, updatedAt. Public read.
+    //   Created by setUserRole (Admin SDK). The owner may update name, bio and imageURL only.
+    // events/{eventId}: artistId, title, startsAt, venue, city, description, imageURL, createdAt, updatedAt.
+    //   Public read. Only the owning artist, with users/{uid}.role == "artist", can write.
     // loginCodes and authRateLimits are written only by Cloud Functions (the Admin SDK).
     // A photo URL is empty or a download URL for this user's own avatar.
 
@@ -47,7 +51,7 @@ service cloud.firestore {
         && d.email.size() <= 254
         && d.email == request.auth.token.email
         && validPhoto(d.photoURL)
-        && d.role == 'fan'
+        && (d.role == 'fan' || d.role == 'artist')
         && d.createdAt is timestamp
         && d.updatedAt is timestamp;
     }
@@ -57,6 +61,7 @@ service cloud.firestore {
       allow get: if isOwner(userId);
       allow create: if isOwner(userId)
         && validUser(request.resource.data)
+        && request.resource.data.role == 'fan'
         && request.resource.data.createdAt == request.time
         && request.resource.data.updatedAt == request.time;
       allow update: if isOwner(userId)
@@ -94,26 +99,111 @@ service cloud.firestore {
       allow write: if false;
     }
 
-    // Artists are readable by signed-in users. Admins can add an artist and rename it. The fan total and the
-    // image are set only by Cloud Functions. Fans who counted toward the total are in a "fans" subcollection that
-    // clients never touch.
+    function safeId(id) {
+      return id.matches('^[A-Za-z0-9]{1,128}$');
+    }
+
+    function hostedImage(url) {
+      return url is string
+        && url.size() > 0
+        && url.size() <= 2048
+        && (
+          url.matches('https://firebasestorage\\.googleapis\\.com/[^?]+(\\?.*)?')
+          || url.matches('https://storage\\.googleapis\\.com/[^?]+(\\?.*)?')
+          || url.matches('http://127\\.0\\.0\\.1:9199/[^?]+(\\?.*)?')
+          || url.matches('http://localhost:9199/[^?]+(\\?.*)?')
+        );
+    }
+
+    // The folder must appear in the URL path, not only in the query string.
+    function urlInFolder(url, folder, id) {
+      return hostedImage(url) && (
+        url.matches('https://[^?]*' + folder + '%2F' + id + '%2F[^?]*(\\?.*)?')
+        || url.matches('http://[^?]*' + folder + '%2F' + id + '%2F[^?]*(\\?.*)?')
+        || url.matches('https://[^?]*/' + folder + '/' + id + '/[^?]*(\\?.*)?')
+        || url.matches('http://[^?]*/' + folder + '/' + id + '/[^?]*(\\?.*)?')
+      );
+    }
+
+    function avatarUrl(url, id) {
+      return hostedImage(url) && (
+        url.matches('https://[^?]*users%2F' + id + '%2Favatar[^?]*(\\?.*)?')
+        || url.matches('http://[^?]*users%2F' + id + '%2Favatar[^?]*(\\?.*)?')
+        || url.matches('https://[^?]*/users/' + id + '/avatar[^?]*(\\?.*)?')
+        || url.matches('http://[^?]*/users/' + id + '/avatar[^?]*(\\?.*)?')
+      );
+    }
+
+    function textOk(value, max) {
+      return value is string && value.size() > 0 && value.size() <= max && value.matches('.*\\S.*');
+    }
+
+    function callerIsArtist() {
+      return request.auth != null
+        && exists(/databases/$(database)/documents/users/$(request.auth.uid))
+        && get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'artist';
+    }
+
+    // Artist pages are public. The server creates them. The owner, while their user doc says artist,
+    // may change the name, bio and image. Fans of the old counter live in a subcollection clients never touch.
     match /artists/{artistId} {
-      allow read: if request.auth != null;
-      allow create: if isAdmin()
-        && request.resource.data.keys().hasOnly(['name', 'nameLower', 'fanCount', 'createdAt'])
-        && request.resource.data.keys().hasAll(['name', 'nameLower', 'fanCount', 'createdAt'])
-        && request.resource.data.name is string
-        && request.resource.data.name.size() > 0
-        && request.resource.data.name.size() <= 80
-        && request.resource.data.nameLower is string
-        && request.resource.data.fanCount == 0
-        && request.resource.data.createdAt == request.time;
-      allow update: if isAdmin()
-        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['name', 'nameLower'])
-        && request.resource.data.name is string
-        && request.resource.data.name.size() > 0
-        && request.resource.data.name.size() <= 80;
-      allow delete: if false;
+      allow read: if true;
+      allow create, delete: if false;
+      allow update: if callerIsArtist()
+        && safeId(artistId)
+        && request.auth.uid == artistId
+        && resource.data.ownerUid == request.auth.uid
+        && request.resource.data.keys().hasOnly(['name', 'bio', 'imageURL', 'ownerUid', 'createdAt', 'updatedAt'])
+        && request.resource.data.keys().hasAll(['name', 'bio', 'imageURL', 'ownerUid', 'createdAt', 'updatedAt'])
+        && textOk(request.resource.data.name, 80)
+        && request.resource.data.bio is string
+        && request.resource.data.bio.size() <= 600
+        && (
+          request.resource.data.imageURL == resource.data.imageURL
+          || request.resource.data.imageURL == ''
+          || urlInFolder(request.resource.data.imageURL, 'artists', artistId)
+          || avatarUrl(request.resource.data.imageURL, artistId)
+        )
+        && request.resource.data.imageURL is string
+        && request.resource.data.imageURL.size() <= 2048
+        && request.resource.data.ownerUid == resource.data.ownerUid
+        && request.resource.data.createdAt == resource.data.createdAt
+        && request.resource.data.updatedAt == request.time
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['name', 'bio', 'imageURL', 'updatedAt']);
+    }
+
+    function validEvent(eventId) {
+      let d = request.resource.data;
+      return safeId(eventId)
+        && d.keys().hasOnly(['artistId', 'title', 'startsAt', 'venue', 'city', 'description', 'imageURL', 'createdAt', 'updatedAt'])
+        && d.keys().hasAll(['artistId', 'title', 'startsAt', 'venue', 'city', 'description', 'imageURL', 'createdAt', 'updatedAt'])
+        && d.artistId == request.auth.uid
+        && textOk(d.title, 120)
+        && d.startsAt is timestamp
+        && textOk(d.venue, 120)
+        && textOk(d.city, 80)
+        && textOk(d.description, 2000)
+        && urlInFolder(d.imageURL, 'events', eventId)
+        && d.createdAt is timestamp
+        && d.updatedAt is timestamp;
+    }
+
+    // Events are public. A fan cannot write one, and an artist cannot write someone else's.
+    match /events/{eventId} {
+      allow read: if true;
+      allow create: if callerIsArtist()
+        && validEvent(eventId)
+        && request.resource.data.createdAt == request.time
+        && request.resource.data.updatedAt == request.time;
+      allow update: if callerIsArtist()
+        && resource.data.artistId == request.auth.uid
+        && validEvent(eventId)
+        && request.resource.data.artistId == resource.data.artistId
+        && request.resource.data.createdAt == resource.data.createdAt
+        && request.resource.data.updatedAt == request.time
+        && request.resource.data.diff(resource.data).affectedKeys()
+          .hasOnly(['title', 'startsAt', 'venue', 'city', 'description', 'imageURL', 'updatedAt']);
+      allow delete: if callerIsArtist() && resource.data.artistId == request.auth.uid;
     }
 
     // Shows are readable by signed-in users. Admins add them, change the end time, or delete them.

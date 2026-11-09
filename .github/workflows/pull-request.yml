@@ -61,7 +61,7 @@ jobs:
         id: changes
         env:
           GH_TOKEN: ${{ github.token }}
-          PATTERN: '^(functions/|firebase\.json$|\.github/workflows/pull-request\.yml$)'
+          PATTERN: '^(functions/|scripts/set-role\.mjs$|firebase\.json$|\.github/workflows/pull-request\.yml$)'
         run: |
           files=$(gh api --paginate "repos/${{ github.repository }}/pulls/${{ github.event.pull_request.number }}/files" --jq '.[].filename')
           if echo "$files" | grep -Eq "$PATTERN"; then echo "run=true" >> "$GITHUB_OUTPUT"; else echo "run=false" >> "$GITHUB_OUTPUT"; echo "No functions changes, nothing to validate."; fi

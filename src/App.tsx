@@ -1,6 +1,11 @@
-import { useEffect, useId, useRef, useState, type ClipboardEvent, type FormEvent, type InputHTMLAttributes, type ReactNode } from "react";
+import { useEffect, useRef, useState, type ClipboardEvent, type FormEvent } from "react";
+import { ArtistEditScreen, ArtistScreen } from "./artist";
+import { EventEditScreen, EventScreen } from "./event";
+import { HomeScreen } from "./home";
 import { cleanEmail, cleanName, validEmail, validName, type Profile } from "./profile";
+import { currentPath, parseRoute } from "./routes";
 import { explain, requestCode, saveProfile, signOutUser, uploadAvatar, verifyCode, watchSession, type Session } from "./services";
+import { Avatar, BackIcon, Boot, BrandLockup, CameraIcon, Field, Scene, TopBar, keepVisible } from "./ui";
 
 const PENDING_KEY = "razzberry.pendingEmail";
 
@@ -24,11 +29,6 @@ function writePending(pending: Pending) {
 
 function clearPending() {
   sessionStorage.removeItem(PENDING_KEY);
-}
-
-function currentPath(): string {
-  const path = window.location.pathname.replace(/\/$/, "");
-  return path.length > 0 ? path : "/";
 }
 
 export default function App() {
@@ -85,6 +85,11 @@ export default function App() {
     setPath(next);
   }
 
+  function replace(next: string) {
+    window.history.replaceState({ razz: true }, "", next);
+    setPath(next);
+  }
+
   function backHome() {
     if (window.history.state?.razz) window.history.back();
     else {
@@ -137,17 +142,27 @@ export default function App() {
     );
   }
 
-  if (path === "/settings") {
+  const profile = signedIn.profile;
+  if (!profile?.firstName) return null;
+  const route = parseRoute(path);
+  const screen = {
+    uid: signedIn.uid,
+    profile,
+    go,
+    back: backHome,
+  };
+
+  if (route.name === "settings") {
     return (
       <SettingsScreen
         uid={signedIn.uid}
-        email={signedIn.profile?.email || signedIn.email}
-        profile={signedIn.profile}
+        email={profile.email || signedIn.email}
+        profile={profile}
         photoVersion={photoVersion}
         onBack={backHome}
-        onSaved={(profile) => {
+        onSaved={(next) => {
           setPhotoVersion(Date.now());
-          setSession({ ...signedIn, profile });
+          setSession({ ...signedIn, profile: next });
         }}
         onPhoto={() => setPhotoVersion(Date.now())}
         onSignedOut={() => {
@@ -159,104 +174,28 @@ export default function App() {
     );
   }
 
-  return (
-    <HomeScreen
-      firstName={signedIn.profile?.firstName || "there"}
-      photoURL={signedIn.profile?.photoURL ?? ""}
-      photoVersion={photoVersion}
-      onSettings={() => go("/settings")}
-    />
-  );
-}
+  if (route.name === "home") {
+    return <HomeScreen uid={screen.uid} profile={profile} photoVersion={photoVersion} onSettings={() => go("/settings")} go={go} />;
+  }
+  if (route.name === "artist") return <ArtistScreen id={route.id} {...screen} />;
+  if (route.name === "artist-edit") return <ArtistEditScreen id={route.id} {...screen} />;
+  if (route.name === "event") return <EventScreen id={route.id} {...screen} />;
+  if (route.name === "event-edit") return <EventEditScreen id={route.id} {...screen} replace={replace} />;
 
-function Boot() {
   return (
-    <div className="boot">
-      <p className="wordmark">Razzberry</p>
-      <p className="fine-print">Loading…</p>
-    </div>
-  );
-}
-
-function Scene({ variant, children }: { variant: "auth" | "home"; children: ReactNode }) {
-  return (
-    <div className={variant === "home" ? "scene is-home" : "scene is-auth"}>
-      <picture className="scene-photo">
-        {/* Unsplash photo-1540039155733-5bb30b53aa14, Unsplash License. Color graded for the stage lights. */}
-        <source srcSet="/concert.webp" type="image/webp" />
-        <img src="/concert.jpg" alt="" />
-      </picture>
-      <div className="scene-shade" />
-      <div className={variant === "home" ? "frame is-spread" : "frame"}>{children}</div>
-    </div>
-  );
-}
-
-function TopBar({ back, menu, avatar }: { back?: () => void; menu?: boolean; avatar?: ReactNode }) {
-  return (
-    <header className="topbar">
-      <div className="brand-lockup">
-        {back ? (
-          <button type="button" className="back" aria-label="Back" onClick={back}>
-            <BackIcon />
+    <Scene variant="home">
+      <TopBar />
+      <div className="home-column">
+        <div className="empty">
+          <strong>That page isn't here</strong>
+          <p>Head back to the events.</p>
+          <button className="primary" type="button" onClick={() => go("/")}>
+            Back home
           </button>
-        ) : null}
-        <p className="wordmark">Razzberry</p>
+        </div>
       </div>
-      {avatar}
-      {menu ? <MenuMark /> : null}
-    </header>
+    </Scene>
   );
-}
-
-function MenuMark() {
-  return (
-    <span className="menu-mark" aria-hidden="true">
-      <svg viewBox="0 0 24 24">
-        <path d="M5 7h14M5 12h14M5 17h14" />
-      </svg>
-    </span>
-  );
-}
-
-function BackIcon() {
-  return (
-    <svg viewBox="0 0 24 24" aria-hidden="true">
-      <path d="M15 5 8 12l7 7" />
-    </svg>
-  );
-}
-
-function CameraIcon() {
-  return (
-    <svg viewBox="0 0 24 24" aria-hidden="true">
-      <path d="M8.2 7.2 9.6 5.4h4.8l1.4 1.8H18a2 2 0 0 1 2 2v7.2a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V9.2a2 2 0 0 1 2-2z" />
-      <circle cx="12" cy="12.4" r="2.7" />
-    </svg>
-  );
-}
-
-function Avatar({ name, url, version, alt }: { name: string; url: string; version: number; alt: string }) {
-  const letter = name.trim().charAt(0).toUpperCase() || "R";
-  if (!url) return <span className="avatar-fallback">{letter}</span>;
-  const src = version > 0 ? `${url}${url.includes("?") ? "&" : "?"}v=${version}` : url;
-  return <img src={src} alt={alt} />;
-}
-
-function Field({ label, ...props }: { label: string } & InputHTMLAttributes<HTMLInputElement>) {
-  const id = useId();
-  return (
-    <label className="field" htmlFor={id}>
-      <span>{label}</span>
-      <input id={id} {...props} />
-    </label>
-  );
-}
-
-function keepVisible(id: string) {
-  window.setTimeout(() => {
-    document.getElementById(id)?.scrollIntoView({ block: "nearest" });
-  }, 280);
 }
 
 function EmailScreen({ initialEmail, onSent }: { initialEmail: string; onSent: (pending: Pending) => void }) {
@@ -509,27 +448,6 @@ function NameScreen({ uid, onSaved }: { uid: string; onSaved: (profile: Profile)
   );
 }
 
-function HomeScreen({ firstName, photoURL, photoVersion, onSettings }: { firstName: string; photoURL: string; photoVersion: number; onSettings: () => void }) {
-  return (
-    <Scene variant="home">
-      <TopBar
-        avatar={
-          <button type="button" className="avatar-link" aria-label="Settings" onClick={onSettings}>
-            <Avatar name={firstName} url={photoURL} version={photoVersion} alt="" />
-          </button>
-        }
-      />
-      <div className="home-main">
-        <div className="hero-avatar">
-          <Avatar name={firstName} url={photoURL} version={photoVersion} alt="" />
-        </div>
-        <h1 className="welcome">Welcome, {firstName}</h1>
-        <p className="soon">More coming soon.</p>
-      </div>
-    </Scene>
-  );
-}
-
 function SettingsScreen({
   uid,
   email,
@@ -569,7 +487,7 @@ function SettingsScreen({
     setError("");
     try {
       await saveProfile(uid, { firstName: first, lastName: last, photoURL });
-      onSaved({ firstName: first, lastName: last, email, photoURL, role: "fan" });
+      onSaved({ firstName: first, lastName: last, email, photoURL, role: profile?.role === "artist" ? "artist" : "fan" });
     } catch (caught) {
       setError(explain(caught));
     } finally {
@@ -588,7 +506,7 @@ function SettingsScreen({
       await saveProfile(uid, { firstName: first, lastName: last, photoURL: next });
       setPhotoURL(next);
       onPhoto();
-      onSaved({ firstName: first, lastName: last, email, photoURL: next, role: "fan" });
+      onSaved({ firstName: first, lastName: last, email, photoURL: next, role: profile?.role === "artist" ? "artist" : "fan" });
     } catch (caught) {
       setError(explain(caught));
     } finally {
@@ -611,7 +529,7 @@ function SettingsScreen({
     <div className="settings">
       <div className="settings-glow" aria-hidden="true" />
       <header className="settings-appbar">
-        <p className="wordmark">Razzberry</p>
+        <BrandLockup />
         <button type="button" className="avatar-link" aria-label="Home" onClick={onBack}>
           <Avatar name={firstName} url={photoURL} version={photoVersion} alt="" />
         </button>

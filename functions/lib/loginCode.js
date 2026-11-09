@@ -294,7 +294,7 @@ async function ensureProfile(db, uid, email, now, timestampOf) {
   const ref = db.doc(`users/${uid}`);
   const snap = await ref.get();
   const data = snap.exists ? snap.data() || {} : null;
-  if (data && typeof data.firstName === "string" && data.firstName.trim().length > 0 && data.role === "fan") return false;
+  if (data && typeof data.firstName === "string" && data.firstName.trim().length > 0 && (data.role === "fan" || data.role === "artist")) return false;
   // Old accounts are not migrated. A document without the new name is deleted and written again,
   // so leftover fields (displayName and anything else) are gone. The auth user is reused.
   if (snap.exists) await ref.delete();

@@ -1,10 +1,10 @@
 import { readFile } from "node:fs/promises";
 import { after, before, beforeEach, test } from "node:test";
 import { initializeTestEnvironment, assertFails, assertSucceeds } from "@firebase/rules-unit-testing";
-import { collection, deleteDoc, doc, getDoc, getDocs, query, serverTimestamp, setDoc, Timestamp, updateDoc, where } from "firebase/firestore";
+import { collection, deleteDoc, doc, getDoc, getDocs, orderBy, query, serverTimestamp, setDoc, Timestamp, updateDoc, where } from "firebase/firestore";
 import { ref, getBytes, uploadBytes, deleteObject } from "firebase/storage";
 
-const projectId = "razzberry-rules-test";
+const projectId = process.env.GCLOUD_PROJECT || "demo-razzberry-rules";
 const EMAIL = "ada@example.com";
 let testEnv;
 
@@ -93,6 +93,22 @@ test("nobody can delete their own profile or list the users collection", async (
   await assertFails(getDocs(collection(db, "users")));
 });
 
+test("an artist can update their own name and still cannot change role", async () => {
+  await seed("nova", {
+    firstName: "Nova",
+    lastName: "Vale",
+    email: "nova@example.com",
+    photoURL: "",
+    role: "artist",
+    createdAt: Timestamp.fromMillis(1_700_000_000_000),
+    updatedAt: Timestamp.fromMillis(1_700_000_000_000),
+  });
+  const db = authed("nova", "nova@example.com");
+  await assertSucceeds(updateDoc(doc(db, "users/nova"), { firstName: "Nia", updatedAt: serverTimestamp() }));
+  await assertFails(updateDoc(doc(db, "users/nova"), { role: "fan", updatedAt: serverTimestamp() }));
+  await assertFails(updateDoc(doc(db, "users/nova"), { role: "admin", updatedAt: serverTimestamp() }));
+});
+
 test("unauthenticated clients are denied everywhere", async () => {
   await seed();
   const anon = testEnv.unauthenticatedContext().firestore();
@@ -154,15 +170,13 @@ test("admins are recorded in admins/{uid}: you can read your own entry and nothi
   await assertFails(deleteDoc(doc(asAdmin(), "admins/boss")));
 });
 
-test("signed-in users can read shows and artists, signed-out users cannot", async () => {
+test("signed-in users can read shows, signed-out users cannot", async () => {
   await seedAdminAndData();
   await assertSucceeds(getDoc(doc(authed("ada"), "shows/s1")));
   await assertSucceeds(getDocs(collection(authed("ada"), "shows")));
-  await assertSucceeds(getDoc(doc(authed("ada"), "artists/a1")));
-  await assertSucceeds(getDocs(collection(authed("ada"), "artists")));
   const anon = testEnv.unauthenticatedContext().firestore();
   await assertFails(getDoc(doc(anon, "shows/s1")));
-  await assertFails(getDoc(doc(anon, "artists/a1")));
+  await assertFails(getDocs(collection(anon, "shows")));
 });
 
 test("only admins can add, change or delete shows, and a show must be well formed", async () => {
@@ -189,20 +203,84 @@ test("only admins can add, change or delete shows, and a show must be well forme
   await assertSucceeds(deleteDoc(doc(boss, "shows/s1")));
 });
 
-test("only admins can add or rename artists, and nobody can set the fan total or image from a client", async () => {
-  await seedAdminAndData();
-  const newArtist = (extra = {}) => ({ name: "Beta", nameLower: "beta", fanCount: 0, createdAt: serverTimestamp(), ...extra });
-  await assertFails(setDoc(doc(authed("ada"), "artists/beta"), newArtist()));
-  const boss = asAdmin();
-  await assertSucceeds(setDoc(doc(boss, "artists/beta"), newArtist()));
-  await assertFails(setDoc(doc(boss, "artists/gamma"), newArtist({ fanCount: 50 })));
-  await assertFails(setDoc(doc(boss, "artists/gamma"), newArtist({ imageUrl: "https://example.com/x.jpg" })));
-  await assertFails(setDoc(doc(boss, "artists/gamma"), newArtist({ name: "" })));
-  await assertSucceeds(updateDoc(doc(boss, "artists/a1"), { name: "Alpha Prime", nameLower: "alpha prime" }));
-  await assertFails(updateDoc(doc(boss, "artists/a1"), { fanCount: 999 }));
-  await assertFails(updateDoc(doc(boss, "artists/a1"), { imageUrl: "https://example.com/x.jpg" }));
-  await assertFails(updateDoc(doc(authed("ada"), "artists/a1"), { name: "Hacked", nameLower: "hacked" }));
-  await assertFails(deleteDoc(doc(boss, "artists/a1")));
+const artistImage = (id) => `https://firebasestorage.googleapis.com/v0/b/new-raz-prod.firebasestorage.app/o/artists%2F${id}%2Fcover.jpg?alt=media`;
+const eventImage = (id) => `https://firebasestorage.googleapis.com/v0/b/new-raz-prod.firebasestorage.app/o/events%2F${id}%2Fcover.jpg?alt=media`;
+
+function artistDoc(extra = {}) {
+  return { name: "DJ Nova", bio: "", imageURL: "", ownerUid: "nova", createdAt: at(0), updatedAt: at(0), ...extra };
+}
+
+function eventDoc(id, extra = {}) {
+  return {
+    artistId: "nova",
+    title: "Nova Live at Commonwealth",
+    startsAt: at(3_600_000),
+    venue: "Commonwealth Bar",
+    city: "Calgary",
+    description: "An intimate late-night set.",
+    imageURL: eventImage(id),
+    createdAt: serverTimestamp(),
+    updatedAt: serverTimestamp(),
+    ...extra,
+  };
+}
+
+async function seedArtist(uid = "nova", role = "artist") {
+  await testEnv.withSecurityRulesDisabled(async (context) => {
+    const db = context.firestore();
+    await setDoc(doc(db, `users/${uid}`), {
+      firstName: "Nova",
+      lastName: "Vale",
+      email: `${uid}@example.com`,
+      photoURL: "",
+      role,
+      createdAt: at(0),
+      updatedAt: at(0),
+    });
+    if (role === "artist") await setDoc(doc(db, `artists/${uid}`), artistDoc({ ownerUid: uid }));
+  });
+}
+
+test("artist pages and events are public to read, and only the owning artist can write them", async () => {
+  await seedArtist("nova");
+  await seedArtist("ada", "fan");
+  await seed();
+  const nova = authed("nova", "nova@example.com");
+  const ada = authed("ada");
+  const anon = testEnv.unauthenticatedContext().firestore();
+
+  await assertFails(setDoc(doc(nova, "artists/nova"), artistDoc()));
+  await assertFails(setDoc(doc(ada, "artists/ada"), artistDoc({ ownerUid: "ada" })));
+  await assertFails(deleteDoc(doc(nova, "artists/nova")));
+  await assertSucceeds(getDoc(doc(anon, "artists/nova")));
+  await assertSucceeds(getDocs(collection(anon, "artists")));
+  await assertSucceeds(updateDoc(doc(nova, "artists/nova"), { name: "DJ Nova", bio: "Heavy bass.", imageURL: artistImage("nova"), updatedAt: serverTimestamp() }));
+  await assertFails(updateDoc(doc(nova, "artists/nova"), { ownerUid: "ada", updatedAt: serverTimestamp() }));
+  await assertFails(updateDoc(doc(nova, "artists/nova"), { name: "DJ Nova", bio: "x", imageURL: "javascript:alert(1)", updatedAt: serverTimestamp() }));
+  await assertFails(updateDoc(doc(nova, "artists/nova"), { name: "DJ Nova", bio: "x", imageURL: artistImage("ada"), updatedAt: serverTimestamp() }));
+  await assertFails(updateDoc(doc(nova, "artists/nova"), { name: "", bio: "", updatedAt: serverTimestamp() }));
+  await assertFails(updateDoc(doc(nova, "artists/nova"), { fanCount: 1, updatedAt: serverTimestamp() }));
+  await assertFails(updateDoc(doc(ada, "artists/nova"), { name: "Hacked", updatedAt: serverTimestamp() }));
+
+  await testEnv.withSecurityRulesDisabled(async (context) => {
+    await setDoc(doc(context.firestore(), "artists/ada"), artistDoc({ ownerUid: "ada" }));
+  });
+  await assertFails(updateDoc(doc(ada, "artists/ada"), { bio: "I am not an artist", updatedAt: serverTimestamp() }));
+
+  await assertSucceeds(setDoc(doc(nova, "events/night1"), eventDoc("night1")));
+  await assertSucceeds(getDoc(doc(anon, "events/night1")));
+  await assertSucceeds(getDocs(query(collection(anon, "events"), where("startsAt", ">=", at(0)), orderBy("startsAt", "asc"))));
+  await assertSucceeds(updateDoc(doc(nova, "events/night1"), { title: "Late Night Set", updatedAt: serverTimestamp() }));
+  await assertFails(updateDoc(doc(nova, "events/night1"), { artistId: "ada", updatedAt: serverTimestamp() }));
+  await assertFails(updateDoc(doc(nova, "events/night1"), { title: "Nope", imageURL: `https://firebasestorage.googleapis.com/v0/b/b/o/events%2Fother%2Fcover.jpg?x=events%2Fnight1%2F`, updatedAt: serverTimestamp() }));
+  await assertFails(setDoc(doc(nova, "events/night2"), eventDoc("night2", { artistId: "ada" })));
+  await assertFails(setDoc(doc(nova, "events/night2"), eventDoc("night2", { title: "" })));
+  await assertFails(setDoc(doc(nova, "events/night2"), eventDoc("night2", { description: "x".repeat(2001) })));
+  await assertFails(setDoc(doc(ada, "events/fan1"), eventDoc("fan1", { artistId: "ada" })));
+  await assertFails(setDoc(doc(anon, "events/anon1"), eventDoc("anon1")));
+  await assertFails(updateDoc(doc(ada, "events/night1"), { title: "Hacked", updatedAt: serverTimestamp() }));
+  await assertFails(deleteDoc(doc(ada, "events/night1")));
+  await assertSucceeds(deleteDoc(doc(nova, "events/night1")));
 });
 
 test("a fan can read only their own numbers and check-ins, and cannot write them", async () => {
@@ -226,19 +304,42 @@ test("a fan can read only their own numbers and check-ins, and cannot write them
   await assertFails(deleteDoc(doc(ada, "checkins/s1_ada")));
 });
 
-test("artist image files are public to read and can never be written from a client", async () => {
+test("artist and event images are public to read, and only the owning artist can write an image under 5 MB", async () => {
+  await seedArtist("nova");
+  await seedArtist("bob");
+  await seed();
   await testEnv.withSecurityRulesDisabled(async (context) => {
-    await uploadBytes(ref(context.storage(), "artists/a1/image"), new Uint8Array([0xff, 0xd8, 0xff]), { contentType: "image/jpeg" });
+    const db = context.firestore();
+    await setDoc(doc(db, "events/e1"), { artistId: "nova" });
+    await setDoc(doc(db, "events/e2"), { artistId: "bob" });
   });
+  const jpeg = new Uint8Array([0xff, 0xd8, 0xff, 0xd9]);
+  const nova = testEnv.authenticatedContext("nova", { email: "nova@example.com" }).storage();
+  const bob = testEnv.authenticatedContext("bob", { email: "bob@example.com" }).storage();
+  const ada = testEnv.authenticatedContext("ada", { email: EMAIL }).storage();
   const anon = testEnv.unauthenticatedContext().storage();
-  const signedIn = testEnv.authenticatedContext("ada").storage();
-  const boss = testEnv.authenticatedContext("boss").storage();
-  await assertSucceeds(getBytes(ref(anon, "artists/a1/image")));
-  await assertSucceeds(getBytes(ref(signedIn, "artists/a1/image")));
-  for (const storage of [anon, signedIn, boss]) {
-    await assertFails(uploadBytes(ref(storage, "artists/a1/image"), new Uint8Array([1]), { contentType: "image/jpeg" }));
-    await assertFails(deleteObject(ref(storage, "artists/a1/image")));
-  }
+
+  await assertSucceeds(uploadBytes(ref(nova, "artists/nova/cover.jpg"), jpeg, { contentType: "image/jpeg" }));
+  await assertSucceeds(uploadBytes(ref(nova, "artists/nova/cover.png"), new Uint8Array([0x89, 0x50, 0x4e, 0x47]), { contentType: "image/png" }));
+  await assertSucceeds(uploadBytes(ref(nova, "artists/nova/cover.webp"), new Uint8Array([0x52, 0x49, 0x46, 0x46]), { contentType: "image/webp" }));
+  await assertSucceeds(getBytes(ref(anon, "artists/nova/cover.jpg")));
+  await assertFails(uploadBytes(ref(nova, "artists/bob/cover.jpg"), jpeg, { contentType: "image/jpeg" }));
+  await assertFails(uploadBytes(ref(ada, "artists/ada/cover.jpg"), jpeg, { contentType: "image/jpeg" }));
+  await assertFails(uploadBytes(ref(anon, "artists/nova/cover.jpg"), jpeg, { contentType: "image/jpeg" }));
+  await assertFails(uploadBytes(ref(nova, "artists/nova/cover.gif"), jpeg, { contentType: "image/gif" }));
+  await assertFails(uploadBytes(ref(nova, "artists/nova/cover.jpg"), jpeg, { contentType: "text/html" }));
+  await assertFails(uploadBytes(ref(nova, "artists/nova/big.jpg"), new Uint8Array(5 * 1024 * 1024), { contentType: "image/jpeg" }));
+  await assertFails(deleteObject(ref(bob, "artists/nova/cover.jpg")));
+  await assertSucceeds(deleteObject(ref(nova, "artists/nova/cover.jpg")));
+
+  await assertFails(uploadBytes(ref(nova, "events/missing1/cover.jpg"), jpeg, { contentType: "image/jpeg" }));
+  await assertSucceeds(uploadBytes(ref(nova, "events/e1/cover.jpg"), jpeg, { contentType: "image/jpeg" }));
+  await assertSucceeds(getBytes(ref(anon, "events/e1/cover.jpg")));
+  await assertFails(uploadBytes(ref(nova, "events/e2/cover.jpg"), jpeg, { contentType: "image/jpeg" }));
+  await assertFails(uploadBytes(ref(ada, "events/e1/cover.jpg"), jpeg, { contentType: "image/jpeg" }));
+  await assertFails(uploadBytes(ref(anon, "events/e1/cover.jpg"), jpeg, { contentType: "image/jpeg" }));
+  await assertFails(deleteObject(ref(bob, "events/e1/cover.jpg")));
+  await assertSucceeds(deleteObject(ref(nova, "events/e1/cover.jpg")));
 });
 
 test("everything else in Storage stays closed", async () => {
