@@ -1,6 +1,6 @@
 # Razzberry
 
-The public website is a blank starter page: the name Razzberry and a line that says it is starting fresh. There is no chat screen, event page, or photo tool in the browser right now.
+The public website is a mobile home screen: the temperature, a house, outdoor light and front-door camera switches, and three daily scene rows. The switches stay in this browser tab. There is no chat screen or event page.
 
 A public page that calls a paid model can run up a bill if someone scripts it. Text chat allows 1000 messages per browser per 10 minutes and 10000 per hour on each server copy. Web search is tighter: 30 per browser per 10 minutes and 150 per hour on each copy, and it also counts toward the text allowance. Images are separate: 8 per browser per 10 minutes and 40 per hour on each copy, one image per request, at most two at a time on a copy. None of these is a global spending cap. Set a budget on the xAI account before this is public.
 

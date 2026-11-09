@@ -22,10 +22,17 @@ describe("starter page", () => {
     container.remove();
   });
 
-  it("shows the name and a fresh start, in a system sans", () => {
+  it("shows the home screen in a system sans and toggles a device", () => {
     act(() => root.render(<App />));
-    expect(container.querySelector("h1")?.textContent).toBe("Razzberry");
-    expect(container.querySelector("p")?.textContent).toBe("Starting fresh");
+    expect(container.querySelector(".brand")?.textContent).toBe("Razzberry");
+    expect(container.querySelector("h1")?.textContent).toBe("25°");
+    expect(container.textContent).toContain("Light");
+    expect(container.textContent).toContain("Camera");
+    expect(container.textContent).toContain("7:00pm, Daily");
+    const light = container.querySelector("[aria-label='Outdoor light']") as HTMLButtonElement;
+    expect(light.getAttribute("aria-checked")).toBe("true");
+    act(() => light.click());
+    expect(light.getAttribute("aria-checked")).toBe("false");
     const css = readFileSync(join(process.cwd(), "src/styles.css"), "utf8");
     expect(css).toMatch(/ui-sans-serif/);
     expect(css).not.toMatch(/Georgia|Iowan|Times New Roman|Palatino/);
