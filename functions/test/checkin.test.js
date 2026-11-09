@@ -139,5 +139,5 @@ test("artist images are recognised by their first bytes, not their name", () => 
 });
 
 test("the functions report a version", () => {
-  assert.match(FUNCTIONS_VERSION, /page-editor/);
+  assert.match(FUNCTIONS_VERSION, /login-code/);
 });
