@@ -1,8 +1,6 @@
 # Razzberry
 
-The public website is a no-login test of one demo event. The main conversation holds a card that opens the full event page. That page has its own chat for the title, description, time, and place. Photos are attached in that chat. A cutout stays in the browser. An AI edit or a new image is a separate request to the image provider, shown as a preview until it is placed on the foreground or background.
-
-There is no sign-in screen and no voice control. Sample guest names and the invitation preview stay in this tab only. The invitation is not sent.
+The public website is a blank starter page: the name Razzberry and a line that says it is starting fresh. There is no chat screen, event page, or photo tool in the browser right now.
 
 A public page that calls a paid model can run up a bill if someone scripts it. Text chat allows 1000 messages per browser per 10 minutes and 10000 per hour on each server copy. Web search is tighter: 30 per browser per 10 minutes and 150 per hour on each copy, and it also counts toward the text allowance. Images are separate: 8 per browser per 10 minutes and 40 per hour on each copy, one image per request, at most two at a time on a copy. None of these is a global spending cap. Set a budget on the xAI account before this is public.
 
@@ -14,14 +12,12 @@ firebase functions:secrets:set XAI_API_KEY --project new-raz-prod
 
 Until that secret exists, chat and images say they are not configured. They do not invent a reply or a picture. Search answers are shown only when the provider actually ran web search and returned an https source. An image link is downloaded only when it is the result of our own provider request and the host is `x.ai`.
 
-The earlier fan-counter functions, Firestore rules, Storage rules, and stored accounts stay. This site no longer shows those screens. Photos are not written to Storage or to `sessionStorage`. Refresh keeps the event text in the tab and clears the photos.
+The earlier fan-counter functions, Firestore rules, Storage rules, and stored accounts stay. The blank page does not call them.
 
 ### How it's built
 
-- **React 19 + TypeScript + Vite.** One column, system sans-serif. The event page is layered color, type, and an optional photo. No login UI.
-- **Cutout** is MediaPipe in the browser (`src/portrait`). It does not upload the photo. AI edit and new images go to `POST /api/image`.
-- **Return** inserts a new line. An IME confirmation does not send. Only the Send button sends. New image and Edit image are separate buttons, so a text turn does not generate a picture.
-- **Functions** in `functions/` still include check-in and artist images. `functions/lib/sceneChat.js` is chat and search. `functions/lib/images.js` is generation and edit. Tests mock `api.x.ai`; they are not a live provider call.
+- **React 19 + TypeScript + Vite.** One screen, system sans-serif.
+- **Functions** in `functions/` still include check-in, artist images, `sceneChat`, and `sceneImage`. The hosting rewrites for `/api/scene` and `/api/image` stay. The starter page does not call them. Function tests mock `api.x.ai`; they are not a live provider call.
 
 ## Local development
 
@@ -29,7 +25,7 @@ Node.js 22 and Java 21 (for the rules emulator).
 
 ```sh
 npm ci
-npm run dev                  # http://localhost:5173  (chat and images proxy to the local scene server)
+npm run dev                  # http://localhost:5173  (/api/scene and /api/image still proxy to the local scene server)
 node scripts/scene-server.mjs
 npm run lint
 npm test
