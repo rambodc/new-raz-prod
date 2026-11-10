@@ -293,10 +293,10 @@ export function MiniPlayer() {
               document.getElementById(`track-${track.id}`)?.scrollIntoView({ behavior: reduce ? "auto" : "smooth", block: "center" });
             }}
           >
-            {cover ? <img src={cover} alt="" /> : <span aria-hidden="true">{track.title.slice(0, 1).toUpperCase()}</span>}
+            {cover ? <img className="mini-art" src={cover} alt="" /> : <span className="mini-art" aria-hidden="true">{track.title.slice(0, 1).toUpperCase()}</span>}
             <span className="mini-copy">
               <strong>{track.title}</strong>
-              <span>{artistName}</span>
+              <span className="mini-artist">{artistName}</span>
             </span>
           </button>
           <div className="mini-controls">
@@ -369,10 +369,10 @@ function PauseIcon() {
 }
 
 function SkipIcon({ direction }: { direction: "previous" | "next" }) {
-  const flip = direction === "previous";
+  const previous = direction === "previous";
   return (
-    <svg viewBox="0 0 24 24" aria-hidden="true" style={flip ? { transform: "scaleX(-1)" } : undefined}>
-      <path d="M6 5h2.2v14H6V5Zm3.2 7 8.8 6.2V5.8L9.2 12Z" />
+    <svg viewBox="0 0 24 24" aria-hidden="true">
+      {previous ? <path d="M5 6h2.2v12H5V6Zm13.6 1.1L8.4 12l10.2 4.9V7.1Z" /> : <path d="M16.8 6H19v12h-2.2V6ZM5.4 7.1 15.6 12 5.4 16.9V7.1Z" />}
     </svg>
   );
 }

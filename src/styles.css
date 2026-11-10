@@ -1580,7 +1580,7 @@ img { max-width: 100%; display: block; }
 .night-meta,
 .track-title,
 .mini-copy strong,
-.mini-copy span {
+.mini-artist {
   display: block;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -1602,7 +1602,7 @@ img { max-width: 100%; display: block; }
 
 .night-meta,
 .track-time,
-.mini-copy span {
+.mini-artist {
   margin-top: 3px;
   color: rgba(255, 255, 255, 0.66);
   font-size: 13px;
@@ -1794,8 +1794,7 @@ a.stage-tickets {
 }
 
 .mini-id {
-  display: grid;
-  grid-template-columns: 42px minmax(0, 1fr);
+  display: flex;
   flex: 1;
   gap: 10px;
   align-items: center;
@@ -1804,22 +1803,31 @@ a.stage-tickets {
   padding: 0;
 }
 
-.mini-id img,
-.mini-id > span {
+.mini-art {
   width: 42px;
   height: 42px;
+  flex: 0 0 42px;
   border-radius: 10px;
   object-fit: cover;
 }
 
-.mini-id > span {
+span.mini-art {
   display: grid;
   place-items: center;
   background: #1b1b1b;
   font-weight: 700;
 }
 
-.mini-copy strong { font-size: 14px; }
+.mini-copy {
+  display: block;
+  min-width: 0;
+  overflow: hidden;
+}
+
+.mini-copy strong {
+  font-size: 14px;
+  font-weight: 700;
+}
 
 .mini-controls {
   display: flex;
