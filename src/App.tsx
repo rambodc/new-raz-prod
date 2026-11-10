@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState, type ClipboardEvent, type FormEvent } from "react";
 import { ArtistStage } from "./artist";
 import { HomeScreen } from "./home";
+import { MiniPlayer, Playback } from "./player";
 import { cleanEmail, cleanName, validEmail, validName, type Profile } from "./profile";
 import { currentPath, parseRoute } from "./routes";
 import { explain, requestCode, saveProfile, signOutUser, uploadAvatar, verifyCode, watchSession, type Session } from "./services";
@@ -37,6 +38,7 @@ export default function App() {
   const [codeStep, setCodeStep] = useState(() => import.meta.env.MODE !== "test" && readPending() !== null);
   const [signingIn, setSigningIn] = useState(false);
   const [photoVersion, setPhotoVersion] = useState(0);
+  const historyStack = useRef<string[]>([currentPath()]);
 
   useEffect(() => {
     if (import.meta.env.MODE === "test") return;
@@ -44,7 +46,11 @@ export default function App() {
   }, []);
 
   useEffect(() => {
-    const onPop = () => setPath(currentPath());
+    const onPop = () => {
+      const next = currentPath();
+      historyStack.current = [next];
+      setPath(next);
+    };
     window.addEventListener("popstate", onPop);
     return () => window.removeEventListener("popstate", onPop);
   }, []);
@@ -74,27 +80,44 @@ export default function App() {
 
   useEffect(() => {
     if (session.status === "signed-out" && path === "/settings") {
+      historyStack.current = ["/"];
       window.history.replaceState({ razz: true }, "", "/");
       setPath("/");
     }
   }, [session, path]);
 
   function go(next: string) {
+    if (next === path) return;
+    historyStack.current.push(next);
     window.history.pushState({ razz: true }, "", next);
     setPath(next);
   }
 
   function replace(next: string) {
+    if (historyStack.current.length === 0) historyStack.current.push(next);
+    else historyStack.current[historyStack.current.length - 1] = next;
     window.history.replaceState({ razz: true }, "", next);
     setPath(next);
   }
 
   function backHome() {
-    if (window.history.state?.razz) window.history.back();
-    else {
-      window.history.replaceState({ razz: true }, "", "/");
+    if (historyStack.current.length > 1) {
+      historyStack.current.pop();
+      const prev = historyStack.current[historyStack.current.length - 1] ?? "/";
+      window.history.pushState({ razz: true }, "", prev);
+      setPath(prev);
+      return;
+    }
+    if (path !== "/") {
+      historyStack.current = ["/"];
+      window.history.pushState({ razz: true }, "", "/");
       setPath("/");
     }
+  }
+
+  function goHome() {
+    setCodeStep(false);
+    go("/");
   }
 
   const signedIn = session.status === "signed-in" ? session : null;
@@ -108,6 +131,7 @@ export default function App() {
         <CodeScreen
           email={pending.email}
           sentAt={pending.sentAt}
+          onHome={goHome}
           onBack={() => setCodeStep(false)}
           onSent={(next) => {
             setPending(next);
@@ -120,6 +144,7 @@ export default function App() {
     return (
       <EmailScreen
         initialEmail={pending?.email ?? ""}
+        onHome={goHome}
         onSent={(next) => {
           setPending(next);
           writePending(next);
@@ -133,6 +158,7 @@ export default function App() {
     return (
       <NameScreen
         uid={signedIn.uid}
+        onHome={goHome}
         onSaved={(profile) => {
           setPhotoVersion(Date.now());
           setSession({ ...signedIn, profile });
@@ -144,21 +170,16 @@ export default function App() {
   const profile = signedIn.profile;
   if (!profile?.firstName) return null;
   const route = parseRoute(path);
-  const screen = {
-    uid: signedIn.uid,
-    profile,
-    go,
-    back: backHome,
-  };
-
+  let body;
   if (route.name === "settings") {
-    return (
+    body = (
       <SettingsScreen
         uid={signedIn.uid}
         email={profile.email || signedIn.email}
         profile={profile}
         photoVersion={photoVersion}
         onBack={backHome}
+        onHome={goHome}
         onSaved={(next) => {
           setPhotoVersion(Date.now());
           setSession({ ...signedIn, profile: next });
@@ -171,32 +192,45 @@ export default function App() {
         }}
       />
     );
-  }
-
-  if (route.name === "home") {
-    return <HomeScreen uid={screen.uid} profile={profile} photoVersion={photoVersion} onSettings={() => go("/settings")} go={go} />;
-  }
-  if (route.name === "artist" || route.name === "artist-edit" || route.name === "event" || route.name === "event-edit") {
-    return <ArtistStage route={route} uid={screen.uid} profile={profile} go={go} replace={replace} back={backHome} />;
+  } else if (route.name === "home") {
+    body = <HomeScreen uid={signedIn.uid} profile={profile} photoVersion={photoVersion} onSettings={() => go("/settings")} go={go} />;
+  } else if (route.name === "artist" || route.name === "artist-edit" || route.name === "event" || route.name === "event-edit") {
+    body = <ArtistStage route={route} uid={signedIn.uid} profile={profile} go={go} replace={replace} back={backHome} onHome={goHome} />;
+  } else {
+    body = (
+      <Scene variant="home">
+        <TopBar onHome={goHome} />
+        <div className="home-column">
+          <div className="empty">
+            <strong>That page isn't here</strong>
+            <p>Head back home.</p>
+            <button className="primary" type="button" onClick={goHome}>
+              Back home
+            </button>
+          </div>
+        </div>
+      </Scene>
+    );
   }
 
   return (
-    <Scene variant="home">
-      <TopBar />
-      <div className="home-column">
-        <div className="empty">
-          <strong>That page isn't here</strong>
-          <p>Head back to the events.</p>
-          <button className="primary" type="button" onClick={() => go("/")}>
-            Back home
-          </button>
-        </div>
-      </div>
-    </Scene>
+    <Playback>
+      {body}
+      <MiniPlayer
+        onOpen={(artistId, trackId) => {
+          if (path === `/artist/${artistId}` || path.startsWith(`/artist/${artistId}/`)) {
+            const reduce = typeof window.matchMedia === "function" && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+            document.getElementById(`track-${trackId}`)?.scrollIntoView({ behavior: reduce ? "auto" : "smooth", block: "center" });
+            return;
+          }
+          go(`/artist/${artistId}`);
+        }}
+      />
+    </Playback>
   );
 }
 
-function EmailScreen({ initialEmail, onSent }: { initialEmail: string; onSent: (pending: Pending) => void }) {
+function EmailScreen({ initialEmail, onSent, onHome }: { initialEmail: string; onSent: (pending: Pending) => void; onHome: () => void }) {
   const [email, setEmail] = useState(initialEmail);
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
@@ -220,8 +254,8 @@ function EmailScreen({ initialEmail, onSent }: { initialEmail: string; onSent: (
   }
 
   return (
-    <Scene variant="auth">
-      <TopBar menu />
+      <Scene variant="auth">
+      <TopBar menu onHome={onHome} />
       <form className="auth-main" onSubmit={onSubmit}>
         <h1 className="headline">Be there.</h1>
         <p className="subhead">Sign in or create an account.</p>
@@ -252,7 +286,7 @@ function EmailScreen({ initialEmail, onSent }: { initialEmail: string; onSent: (
   );
 }
 
-function CodeScreen({ email, sentAt, onBack, onSent, onVerified }: { email: string; sentAt: number; onBack: () => void; onSent: (pending: Pending) => void; onVerified: () => void }) {
+function CodeScreen({ email, sentAt, onBack, onSent, onVerified, onHome }: { email: string; sentAt: number; onBack: () => void; onSent: (pending: Pending) => void; onVerified: () => void; onHome: () => void }) {
   const [code, setCode] = useState("");
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
@@ -299,7 +333,7 @@ function CodeScreen({ email, sentAt, onBack, onSent, onVerified }: { email: stri
 
   return (
     <Scene variant="auth">
-      <TopBar back={onBack} menu />
+      <TopBar back={onBack} menu onHome={onHome} />
       <form className="auth-main" onSubmit={onSubmit}>
         <h1 className="headline long">Check your email</h1>
         <p className="subhead">We sent a code to {email}</p>
@@ -378,7 +412,7 @@ function CodeBoxes({ value, onChange, disabled }: { value: string; onChange: (ne
   );
 }
 
-function NameScreen({ uid, onSaved }: { uid: string; onSaved: (profile: Profile) => void }) {
+function NameScreen({ uid, onSaved, onHome }: { uid: string; onSaved: (profile: Profile) => void; onHome: () => void }) {
   const [firstName, setFirstName] = useState("");
   const [lastName, setLastName] = useState("");
   const [file, setFile] = useState<File | null>(null);
@@ -419,7 +453,7 @@ function NameScreen({ uid, onSaved }: { uid: string; onSaved: (profile: Profile)
 
   return (
     <Scene variant="auth">
-      <TopBar menu />
+      <TopBar menu onHome={onHome} />
       <form className="auth-main" onSubmit={onSubmit}>
         <h1 className="headline long">What's your name?</h1>
         <div className="glass name-card">
@@ -452,6 +486,7 @@ function SettingsScreen({
   profile,
   photoVersion,
   onBack,
+  onHome,
   onSaved,
   onPhoto,
   onSignedOut,
@@ -461,6 +496,7 @@ function SettingsScreen({
   profile: Profile | null;
   photoVersion: number;
   onBack: () => void;
+  onHome: () => void;
   onSaved: (profile: Profile) => void;
   onPhoto: () => void;
   onSignedOut: () => void;
@@ -527,7 +563,7 @@ function SettingsScreen({
     <div className="settings">
       <div className="settings-glow" aria-hidden="true" />
       <header className="settings-appbar">
-        <BrandLockup />
+        <BrandLockup onHome={onHome} />
         <button type="button" className="avatar-link" aria-label="Home" onClick={onBack}>
           <Avatar name={firstName} url={photoURL} version={photoVersion} alt="" />
         </button>

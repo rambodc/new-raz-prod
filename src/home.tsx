@@ -1,7 +1,7 @@
 import type { MouseEvent } from "react";
-import { loadHome } from "./data";
+import { loadHome, type Artist } from "./data";
 import type { Profile } from "./profile";
-import { Avatar, Boot, Chevron, Cover, EventList, Scene, TopBar, useLoad } from "./ui";
+import { Avatar, Boot, Chevron, Cover, Empty, Scene, TopBar, openLink, useLoad } from "./ui";
 
 export function HomeScreen({
   uid,
@@ -23,6 +23,7 @@ export function HomeScreen({
     return (
       <Scene variant="home">
         <TopBar
+          onHome={() => go("/")}
           avatar={
             <button type="button" className="avatar-link" aria-label="Settings" onClick={onSettings}>
               <Avatar name={profile.firstName} url={profile.photoURL} version={photoVersion} alt="" />
@@ -31,7 +32,7 @@ export function HomeScreen({
         />
         <div className="home-column">
           <div className="empty">
-            <strong>Couldn't load events</strong>
+            <strong>Couldn't load artists</strong>
             <p>Check your connection and try again.</p>
             <button className="primary" type="button" onClick={reload}>
               Try again
@@ -42,15 +43,18 @@ export function HomeScreen({
     );
   }
 
-  function open(event: MouseEvent<HTMLAnchorElement>) {
+  function openMine(event: MouseEvent<HTMLAnchorElement>) {
     if (event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
     event.preventDefault();
     go(`/artist/${uid}`);
   }
 
+  const artists = artist ? data.artists.filter((item) => item.id !== uid) : data.artists;
+
   return (
     <Scene variant="home">
       <TopBar
+        onHome={() => go("/")}
         avatar={
           <button type="button" className="avatar-link" aria-label="Settings" onClick={onSettings}>
             <Avatar name={profile.firstName} url={profile.photoURL} version={photoVersion} alt="" />
@@ -70,7 +74,7 @@ export function HomeScreen({
         {artist && data.artist ? (
           <section className="mine">
             <p>Your artist page</p>
-            <a href={`/artist/${uid}`} onClick={open}>
+            <a href={`/artist/${uid}`} onClick={openMine}>
               <Cover url={data.artist.imageURL} alt="" />
               <span className="mine-shade" />
               <span className="mine-name">{data.artist.name}</span>
@@ -78,14 +82,25 @@ export function HomeScreen({
             </a>
           </section>
         ) : null}
-        <h2 className="section-label">Events</h2>
-        <EventList
-          events={data.events}
-          go={go}
-          emptyTitle="Nothing coming up"
-          emptyBody="When an artist publishes a night, you'll see it here."
-        />
+        <h2 className="section-label">Artists</h2>
+        <ArtistGrid artists={artists} go={go} />
       </div>
     </Scene>
+  );
+}
+
+function ArtistGrid({ artists, go }: { artists: Artist[]; go: (path: string) => void }) {
+  if (artists.length === 0) return <Empty title="No artists yet" body="When an artist publishes a page, you'll see it here." />;
+  return (
+    <ul className="artist-grid">
+      {artists.map((artist) => (
+        <li key={artist.id}>
+          <a className="artist-card" href={`/artist/${artist.id}`} onClick={(click) => openLink(click, go)}>
+            <Cover url={artist.imageURL} alt="" />
+            <span>{artist.name}</span>
+          </a>
+        </li>
+      ))}
+    </ul>
   );
 }

@@ -1,10 +1,11 @@
-import { useCallback, useEffect, useRef, useState, type FormEvent, type ReactNode } from "react";
+import { useEffect, useRef, useState, type FormEvent, type ReactNode, type TransitionEvent } from "react";
 import { ownsArtist } from "./access";
 import { deleteEvent, deleteTrack, loadArtistPage, loadLinkedArtist, renameTrack, saveTrackOrder, type Artist, type ArtistPageData, type EventItem, type Track } from "./data";
 import { ArtistForm, EventForm, TrackForm } from "./forms";
 import { cleanLine, cleanTicketUrl, formatDuration, formatWhen, validLine, validTicketUrl } from "./format";
 import { useReducedMotion } from "./motion";
-import { MiniPlayer, Player, usePlayer } from "./player";
+import { Logo } from "./logo";
+import { PauseIcon, PlayIcon, usePlayer } from "./player";
 import type { Profile, Role } from "./profile";
 import type { Route } from "./routes";
 import { explain } from "./services";
@@ -36,6 +37,179 @@ function Expand({ open, id, children }: { open: boolean; id?: string; children: 
   );
 }
 
+function Fold({ away, children }: { away: boolean; children: ReactNode }) {
+  return (
+    <div className={away ? "fold is-away" : "fold"} aria-hidden={away || undefined}>
+      <div className="fold-inner">{children}</div>
+    </div>
+  );
+}
+
+function clip(text: string, max: number): string {
+  const chars = Array.from(text);
+  if (chars.length <= max) return text;
+  return `${chars.slice(0, max).join("").trimEnd()}…`;
+}
+
+function Bio({ text }: { text: string }) {
+  const trimmed = text.trim();
+  const reduced = useReducedMotion();
+  const ref = useRef<HTMLDivElement>(null);
+  const fromHeight = useRef<number | null>(null);
+  const [open, setOpen] = useState(false);
+  const long = Array.from(trimmed).length > 30;
+  const shown = !trimmed || open || !long ? trimmed : clip(trimmed, 30);
+
+  useEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+    if (reduced) {
+      el.style.height = "auto";
+      return;
+    }
+    const from = fromHeight.current;
+    if (from == null) return;
+    const to = el.scrollHeight;
+    el.style.height = `${from}px`;
+    const frame = requestAnimationFrame(() => {
+      el.style.height = `${to}px`;
+    });
+    return () => cancelAnimationFrame(frame);
+  }, [open, reduced, shown]);
+
+  if (!trimmed) return null;
+
+  function toggle() {
+    const el = ref.current;
+    fromHeight.current = el ? el.getBoundingClientRect().height : null;
+    setOpen((value) => !value);
+  }
+
+  function onTransitionEnd(event: TransitionEvent<HTMLDivElement>) {
+    if (event.propertyName !== "height" || !ref.current) return;
+    ref.current.style.height = "auto";
+  }
+
+  return (
+    <div className={open ? "bio is-open" : "bio"}>
+      <div className="bio-clip" ref={ref} onTransitionEnd={onTransitionEnd}>
+        <p className="bio-line">
+          <span>{shown}</span>
+          {long ? (
+            <button type="button" className="bio-more" aria-expanded={open} aria-label={open ? "Show less" : "Read more"} onClick={toggle}>
+              <svg className={open ? "more-icon is-open" : "more-icon"} viewBox="0 0 24 24" aria-hidden="true">
+                <path d="m6 9 6 6 6-6" />
+              </svg>
+            </button>
+          ) : null}
+        </p>
+      </div>
+    </div>
+  );
+}
+
+function useWideStage(): boolean {
+  const [wide, setWide] = useState(() => typeof window.matchMedia === "function" && window.matchMedia("(min-width: 960px)").matches);
+  useEffect(() => {
+    const media = window.matchMedia("(min-width: 960px)");
+    const apply = () => setWide(media.matches);
+    apply();
+    media.addEventListener("change", apply);
+    return () => media.removeEventListener("change", apply);
+  }, []);
+  return wide;
+}
+
+function StageBackdrop({ image, reduced }: { image: string; reduced: boolean }) {
+  const sharpRef = useRef<HTMLImageElement>(null);
+  const blurRef = useRef<HTMLImageElement>(null);
+  const dimRef = useRef<HTMLDivElement>(null);
+  const wide = useWideStage();
+
+  useEffect(() => {
+    const sharp = sharpRef.current;
+    const blur = blurRef.current;
+    const dim = dimRef.current;
+    if (!sharp || !blur || !dim) return;
+    const paint = (progress: number) => {
+      const t = progress * progress * (3 - 2 * progress);
+      sharp.style.opacity = String(1 - t * (wide ? 0.55 : 0.92));
+      blur.style.opacity = String(t * (wide ? 0.72 : 1));
+      dim.style.opacity = String((wide ? 0.08 : 0.12) + t * (wide ? 0.28 : 0.46));
+    };
+    if (reduced) {
+      paint(wide ? 0.2 : 0.85);
+      return;
+    }
+    let frame = 0;
+    const apply = () => paint(Math.min(Math.max(0, window.scrollY) / (wide ? 520 : 420), 1));
+    const onScroll = () => {
+      cancelAnimationFrame(frame);
+      frame = requestAnimationFrame(apply);
+    };
+    apply();
+    window.addEventListener("scroll", onScroll, { passive: true });
+    return () => {
+      cancelAnimationFrame(frame);
+      window.removeEventListener("scroll", onScroll);
+    };
+  }, [reduced, image, wide]);
+
+  return (
+    <>
+      {wide && image ? (
+        <div className="stage-wash" aria-hidden="true">
+          <img src={image} alt="" />
+        </div>
+      ) : null}
+      <div className="stage-bg" aria-hidden="true">
+        {image ? (
+          <>
+            <img ref={sharpRef} className="stage-bg-sharp" src={image} alt="" />
+            <img ref={blurRef} className="stage-bg-blur" src={image} alt="" />
+          </>
+        ) : (
+          <div className="stage-bg-fallback" />
+        )}
+        <div className="stage-bg-scrim" />
+        <div ref={dimRef} className="stage-bg-dim" />
+      </div>
+    </>
+  );
+}
+
+function PencilIcon() {
+  return (
+    <svg viewBox="0 0 24 24" aria-hidden="true">
+      <path d="M4 20h4.2L19 9.2 14.8 5 4 15.8V20Z" />
+      <path d="m13.2 6.6 4.2 4.2" />
+    </svg>
+  );
+}
+
+function PlusIcon() {
+  return (
+    <svg viewBox="0 0 24 24" aria-hidden="true">
+      <path d="M12 5v14M5 12h14" />
+    </svg>
+  );
+}
+
+function NowMark({ paused }: { paused?: boolean }) {
+  return (
+    <span className={paused ? "now is-paused" : "now"} aria-hidden="true">
+      <Logo className="now-logo" />
+      {paused ? <PauseIcon /> : (
+        <span className="eq">
+          <span />
+          <span />
+          <span />
+        </span>
+      )}
+    </span>
+  );
+}
+
 export function ArtistStage({
   route,
   uid,
@@ -43,6 +217,7 @@ export function ArtistStage({
   go,
   replace,
   back,
+  onHome,
 }: {
   route: Route;
   uid: string;
@@ -50,6 +225,7 @@ export function ArtistStage({
   go: (path: string) => void;
   replace: (path: string) => void;
   back: () => void;
+  onHome: () => void;
 }) {
   const requested = requestedIds(route, uid, profile.role);
   const [snapshot, setSnapshot] = useState<ArtistPageData | null>(null);
@@ -82,15 +258,15 @@ export function ArtistStage({
     };
   }, [requested.artistId, requested.eventId, nonce]);
 
-  const reload = useCallback(async (ensureEventId?: string) => {
+  async function reload(ensureEventId?: string) {
     const id = snapshotRef.current?.artist?.id;
     if (!id) return;
     setSnapshot(await loadArtistPage(id, ensureEventId));
-  }, []);
+  }
 
   if (!requested.artistId && !requested.eventId) {
     return (
-      <Page back={back}>
+      <Page back={back} onHome={onHome}>
         <Empty title="Artists publish events" body="This account can't create an event." />
         <button className="primary" type="button" onClick={() => go("/")}>
           Back home
@@ -102,7 +278,7 @@ export function ArtistStage({
   const matches = matchesPage(snapshot, requested.artistId, requested.eventId);
   if (status === "error" && !snapshot?.artist) {
     return (
-      <Page back={back}>
+      <Page back={back} onHome={onHome}>
         <Empty title="Couldn't load this page" body="Check your connection and try again." />
         <button className="primary" type="button" onClick={() => setNonce((value) => value + 1)}>
           Try again
@@ -113,7 +289,7 @@ export function ArtistStage({
   if (status === "ready" && snapshot && !snapshot.artist) {
     const missingEvent = Boolean(requested.eventId) && !requested.artistId;
     return (
-      <Page back={back}>
+      <Page back={back} onHome={onHome}>
         <Empty title={missingEvent ? "This event isn't here" : "This artist page isn't here"} body="It may have been removed." />
         <button className="primary" type="button" onClick={() => go("/")}>
           Back home
@@ -131,23 +307,22 @@ export function ArtistStage({
   const openEventId = route.name === "event" || (route.name === "event-edit" && route.id) ? route.id : null;
 
   return (
-    <Player tracks={snapshot.tracks} artistName={artist.name} artistImage={artist.imageURL}>
-      <StageView
-        artist={artist}
-        events={snapshot.events}
-        tracks={snapshot.tracks}
-        uid={uid}
-        owner={owner}
-        editing={editing}
-        creating={creating}
-        editingEventId={editingEventId}
-        openEventId={openEventId}
-        replace={replace}
-        back={back}
-        reload={reload}
-        setTracks={(tracks) => setSnapshot((current) => (current ? { ...current, tracks } : current))}
-      />
-    </Player>
+    <StageView
+      artist={artist}
+      events={snapshot.events}
+      tracks={snapshot.tracks}
+      uid={uid}
+      owner={owner}
+      editing={editing}
+      creating={creating}
+      editingEventId={editingEventId}
+      openEventId={openEventId}
+      replace={replace}
+      back={back}
+      onHome={onHome}
+      reload={reload}
+      setTracks={(tracks) => setSnapshot((current) => (current ? { ...current, tracks } : current))}
+    />
   );
 }
 
@@ -163,6 +338,7 @@ function StageView({
   openEventId,
   replace,
   back,
+  onHome,
   reload,
   setTracks,
 }: {
@@ -177,253 +353,253 @@ function StageView({
   openEventId: string | null;
   replace: (path: string) => void;
   back: () => void;
+  onHome: () => void;
   reload: (ensureEventId?: string) => Promise<void>;
   setTracks: (tracks: Track[]) => void;
 }) {
   const reduced = useReducedMotion();
   const player = usePlayer();
-  const mediaRef = useRef<HTMLDivElement>(null);
-  const blurRef = useRef<HTMLImageElement>(null);
-  const dimRef = useRef<HTMLDivElement>(null);
-  const copyRef = useRef<HTMLDivElement>(null);
+  const adopt = player.adopt;
   const [adding, setAdding] = useState(false);
+  const [editingTrackId, setEditingTrackId] = useState<string | null>(null);
   const [trackError, setTrackError] = useState("");
+  const focus = editing ? "artist" : creating ? "create" : editingEventId ? "event" : adding ? "add" : editingTrackId ? "track" : null;
 
   useEffect(() => {
     window.scrollTo(0, 0);
   }, [artist.id]);
 
   useEffect(() => {
-    const behavior = reduced ? "auto" : "smooth";
-    if (openEventId) document.getElementById(`event-${openEventId}`)?.scrollIntoView({ behavior, block: "nearest" });
-    else if (editing) document.getElementById("artist-editor")?.scrollIntoView({ behavior, block: "nearest" });
-    else if (creating) document.getElementById("event-editor")?.scrollIntoView({ behavior, block: "nearest" });
-  }, [artist.id, openEventId, editing, creating, reduced]);
+    if (editing || creating || editingEventId) {
+      setAdding(false);
+      setEditingTrackId(null);
+    }
+  }, [editing, creating, editingEventId]);
 
   useEffect(() => {
-    const media = mediaRef.current;
-    const blur = blurRef.current;
-    const dim = dimRef.current;
-    const copy = copyRef.current;
-    if (!media) return;
-    if (reduced) {
-      media.style.transform = "";
-      if (blur) blur.style.opacity = "";
-      if (dim) dim.style.opacity = "";
-      if (copy) {
-        copy.style.opacity = "";
-        copy.style.transform = "";
-      }
-      return;
-    }
-    let frame = 0;
-    const apply = () => {
-      const y = Math.max(0, window.scrollY);
-      const progress = Math.min(y / 560, 1);
-      media.style.transform = `translate3d(0, ${y * 0.12}px, 0) scale(${1.04 + progress * 0.04})`;
-      if (blur) blur.style.opacity = String(0.55 + progress * 0.45);
-      if (dim) dim.style.opacity = String(progress * 0.5);
-      if (copy) {
-        copy.style.opacity = String(1 - progress * 0.28);
-        copy.style.transform = `translate3d(0, ${-Math.min(y, 160) * 0.05}px, 0)`;
-      }
-    };
-    const onScroll = () => {
-      cancelAnimationFrame(frame);
-      frame = requestAnimationFrame(apply);
-    };
-    apply();
-    window.addEventListener("scroll", onScroll, { passive: true });
-    return () => {
-      cancelAnimationFrame(frame);
-      window.removeEventListener("scroll", onScroll);
-    };
-  }, [reduced, artist.imageURL, artist.id]);
+    adopt({ artistId: artist.id, artistName: artist.name, artistImage: artist.imageURL, tracks });
+  }, [adopt, artist.id, artist.name, artist.imageURL, tracks]);
+
+  useEffect(() => {
+    const behavior = reduced ? "auto" : "smooth";
+    const id = editing
+      ? "artist-editor"
+      : creating || editingEventId
+        ? "event-editor"
+        : adding
+          ? "track-editor"
+          : editingTrackId
+            ? `track-editor-${editingTrackId}`
+            : openEventId
+              ? `event-${openEventId}`
+              : null;
+    if (!id) return;
+    document.getElementById(id)?.scrollIntoView({ behavior, block: "nearest" });
+  }, [artist.id, openEventId, editing, creating, editingEventId, adding, editingTrackId, reduced]);
 
   async function refresh(ensureEventId?: string) {
     await reload(ensureEventId);
   }
 
   const nextOrder = tracks.reduce((max, track) => Math.max(max, track.order), -1) + 1;
+  const queue = { artistId: artist.id, artistName: artist.name, artistImage: artist.imageURL, tracks };
 
   return (
-    <div className={player.currentId ? "stage has-player" : "stage"}>
-      <section className="stage-hero" aria-label={artist.name}>
-        <div className="stage-hero-media" ref={mediaRef}>
-          {artist.imageURL ? (
-            <>
-              <img className="stage-hero-image" src={artist.imageURL} alt="" />
-              <img className="stage-hero-blur" ref={blurRef} src={artist.imageURL} alt="" />
-            </>
-          ) : (
-            <div className="stage-hero-fallback" aria-hidden="true" />
-          )}
-          <div className="stage-hero-shade" />
-          <div className="stage-hero-dim" ref={dimRef} />
-        </div>
+    <div className={focus ? "stage is-focused" : "stage"}>
+      <StageBackdrop image={artist.imageURL} reduced={reduced} />
+      <div className="stage-scroll">
         <header className="stage-top">
           <div className="stage-top-inner">
-            <BrandLockup back={back} />
+            <BrandLockup back={back} onHome={onHome} />
           </div>
         </header>
-        <div className="stage-hero-copy" ref={copyRef}>
-          <h1>{artist.name}</h1>
-          {artist.bio ? <p className="stage-bio">{artist.bio}</p> : null}
-          {owner ? (
-            <button
-              type="button"
-              className={editing ? "stage-edit is-on" : "stage-edit"}
-              aria-expanded={editing}
-              onClick={() => replace(editing ? `/artist/${artist.id}` : `/artist/${artist.id}/edit`)}
-            >
-              Edit
-            </button>
-          ) : null}
-        </div>
-      </section>
-      <main className="stage-sheet">
-        <div className="stage-handle" aria-hidden="true" />
-        <div className="stage-column">
-          {owner ? (
-          <Expand open={editing} id="artist-editor">
-            <ArtistForm
-              key={editing ? "editing" : "idle"}
-              artist={artist}
-              onClose={() => replace(`/artist/${artist.id}`)}
-              onSaved={async () => {
-                await refresh();
-                replace(`/artist/${artist.id}`);
-              }}
-            />
-          </Expand>
-          ) : null}
-          <section className="stage-section" aria-labelledby="events-heading">
-            <div className="stage-head">
-              <h2 id="events-heading">Events</h2>
-              {owner ? (
-                <button
-                  type="button"
-                  className="stage-quiet"
-                  aria-expanded={creating}
-                  onClick={() => replace(creating ? `/artist/${artist.id}` : "/events/new")}
-                >
-                  Create event
-                </button>
-              ) : null}
-            </div>
-            {owner ? (
-            <Expand open={creating} id="event-editor">
-              <EventForm
-                key={creating ? "create" : "idle"}
-                uid={uid}
-                event={null}
+        <div className="stage-spacer" />
+        <main className="stage-column">
+          <Fold away={focus !== null && focus !== "artist"}>
+            <Expand open={editing} id={editing ? "artist-editor" : undefined}>
+              <ArtistForm
+                key={editing ? "editing" : "idle"}
+                artist={artist}
                 onClose={() => replace(`/artist/${artist.id}`)}
-                onSaved={async (id) => {
-                  await refresh(id);
-                  replace(`/event/${id}`);
+                onSaved={async () => {
+                  await refresh();
+                  replace(`/artist/${artist.id}`);
                 }}
               />
             </Expand>
-            ) : null}
-            {events.length === 0 ? (
-              <p className="stage-empty">{owner ? "When you publish a night, it shows up here." : "Nothing is scheduled yet."}</p>
-            ) : (
-              <ul className="night-list">
-                {events.map((event) => (
-                  <EventCard
-                    key={event.id}
-                    event={event}
-                    open={openEventId === event.id}
-                    editing={editingEventId === event.id}
-                    owner={owner}
+            <Expand open={!editing}>
+              <div className="stage-identity">
+                <div className="stage-identity-row">
+                  <h1>{artist.name}</h1>
+                  {owner ? (
+                    <button type="button" className="icon-btn" aria-label="Edit page" onClick={() => replace(`/artist/${artist.id}/edit`)}>
+                      <PencilIcon />
+                    </button>
+                  ) : null}
+                </div>
+                <Bio text={artist.bio} />
+              </div>
+            </Expand>
+          </Fold>
+          <Fold away={focus !== null && focus !== "create" && focus !== "event"}>
+            <section className="stage-section" aria-labelledby={focus === "create" || focus === "event" ? undefined : "events-heading"}>
+              <Fold away={Boolean(creating || editingEventId)}>
+                <div className="stage-head">
+                  <h2 id="events-heading">Events</h2>
+                  {owner ? (
+                    <button type="button" className="icon-btn" aria-label="Create event" onClick={() => replace("/events/new")}>
+                      <PlusIcon />
+                    </button>
+                  ) : null}
+                </div>
+              </Fold>
+              {owner ? (
+                <Expand open={creating} id={creating ? "event-editor" : undefined}>
+                  <EventForm
+                    key={creating ? "create" : "idle"}
                     uid={uid}
-                    artistId={artist.id}
-                    replace={replace}
-                    onDelete={async () => {
-                      await deleteEvent(event.id);
-                      await refresh();
-                      replace(`/artist/${artist.id}`);
-                    }}
+                    event={null}
+                    onClose={() => replace(`/artist/${artist.id}`)}
                     onSaved={async (id) => {
                       await refresh(id);
                       replace(`/event/${id}`);
                     }}
                   />
-                ))}
-              </ul>
-            )}
-          </section>
-          <section className="stage-section" aria-labelledby="tracks-heading">
-            <div className="stage-head">
-              <h2 id="tracks-heading">Tracks</h2>
-              {owner ? (
-                <button type="button" className="stage-quiet" aria-expanded={adding} onClick={() => setAdding((value) => !value)}>
-                  Add track
-                </button>
+                </Expand>
               ) : null}
-            </div>
-            {owner ? (
-            <Expand open={adding} id="track-editor">
-              <TrackForm
-                key={adding ? "add" : "idle"}
-                artistId={artist.id}
-                order={nextOrder}
-                onClose={() => setAdding(false)}
-                onSaved={async () => {
-                  await refresh(openEventId ?? undefined);
-                  setAdding(false);
-                }}
-              />
-            </Expand>
-            ) : null}
-            {trackError ? <p className="form-error" role="alert">{trackError}</p> : null}
-            {tracks.length === 0 ? (
-              <p className="stage-empty">{owner ? "Add a song and it will play here." : "No tracks yet."}</p>
-            ) : (
-              <ol className="track-list">
-                {tracks.map((track, index) => (
-                  <TrackRow
-                    key={track.id}
-                    track={track}
-                    index={index}
-                    total={tracks.length}
-                    artistImage={artist.imageURL}
-                    current={player.currentId === track.id}
-                    playing={player.currentId === track.id && player.playing}
-                    owner={owner}
-                    onPlay={() => player.toggle(track)}
-                    onRename={async (title) => {
-                      await renameTrack(artist.id, track.id, title);
-                      setTracks(tracks.map((item) => (item.id === track.id ? { ...item, title } : item)));
-                    }}
-                    onMove={async (direction) => {
-                      const nextIndex = index + direction;
-                      if (nextIndex < 0 || nextIndex >= tracks.length) return;
-                      const next = tracks.slice();
-                      const [item] = next.splice(index, 1);
-                      if (!item) return;
-                      next.splice(nextIndex, 0, item);
-                      const reordered = next.map((itemTrack, order) => ({ ...itemTrack, order }));
-                      setTracks(reordered);
-                      try {
-                        await saveTrackOrder(artist.id, reordered.map((itemTrack) => itemTrack.id));
-                      } catch (caught) {
-                        setTrackError(explain(caught));
-                        await refresh(openEventId ?? undefined);
-                      }
-                    }}
-                    onDelete={async () => {
-                      await deleteTrack(artist.id, track);
-                      setTracks(tracks.filter((item) => item.id !== track.id));
+              {events.length === 0 && !creating ? (
+                <p className="stage-empty">{owner ? "When you publish a night, it shows up here." : "Nothing is scheduled yet."}</p>
+              ) : (
+                <ul className="night-list">
+                  {events.map((event) => {
+                    const editingThis = editingEventId === event.id;
+                    return (
+                      <li key={event.id}>
+                        <Fold away={creating || (editingEventId !== null && !editingThis)}>
+                          <Expand open={editingThis} id={editingThis ? "event-editor" : undefined}>
+                            <EventForm
+                              key={editingThis ? "edit" : "idle"}
+                              uid={uid}
+                              event={event}
+                              onClose={() => replace(`/event/${event.id}`)}
+                              onSaved={async (id) => {
+                                await refresh(id);
+                                replace(`/event/${id}`);
+                              }}
+                            />
+                          </Expand>
+                          <Expand open={!editingThis}>
+                            <EventCard
+                              event={event}
+                              open={openEventId === event.id}
+                              owner={owner}
+                              artistId={artist.id}
+                              replace={replace}
+                              onEdit={() => replace(`/event/${event.id}/edit`)}
+                              onDelete={async () => {
+                                await deleteEvent(event.id);
+                                await refresh();
+                                replace(`/artist/${artist.id}`);
+                              }}
+                            />
+                          </Expand>
+                        </Fold>
+                      </li>
+                    );
+                  })}
+                </ul>
+              )}
+            </section>
+          </Fold>
+          <Fold away={focus !== null && focus !== "add" && focus !== "track"}>
+            <section className="stage-section" aria-labelledby={focus === "add" || focus === "track" ? undefined : "tracks-heading"}>
+              <Fold away={adding || editingTrackId !== null}>
+                <div className="stage-head">
+                  <h2 id="tracks-heading">Tracks</h2>
+                  {owner ? (
+                    <button type="button" className="icon-btn" aria-label="Add track" aria-expanded={adding} onClick={() => setAdding(true)}>
+                      <PlusIcon />
+                    </button>
+                  ) : null}
+                </div>
+              </Fold>
+              {owner ? (
+                <Expand open={adding} id={adding ? "track-editor" : undefined}>
+                  <TrackForm
+                    key={adding ? "add" : "idle"}
+                    artistId={artist.id}
+                    order={nextOrder}
+                    onClose={() => setAdding(false)}
+                    onSaved={async () => {
+                      await refresh(openEventId ?? undefined);
+                      setAdding(false);
                     }}
                   />
-                ))}
-              </ol>
-            )}
-          </section>
-        </div>
-      </main>
-      <MiniPlayer />
+                </Expand>
+              ) : null}
+              {trackError ? <p className="form-error" role="alert">{trackError}</p> : null}
+              {tracks.length === 0 && !adding ? (
+                <p className="stage-empty">{owner ? "Add a song and it will play here." : "No tracks yet."}</p>
+              ) : (
+                <ol className="track-list">
+                  {tracks.map((track, index) => {
+                    const editingThis = editingTrackId === track.id;
+                    return (
+                      <li key={track.id} id={editingThis ? undefined : `track-${track.id}`} className={player.currentId === track.id && player.artistId === artist.id ? "track is-current" : "track"}>
+                        <Fold away={adding || (editingTrackId !== null && !editingThis)}>
+                          <Expand open={editingThis} id={editingThis ? `track-editor-${track.id}` : undefined}>
+                            <TrackEditor
+                              track={track}
+                              index={index}
+                              total={tracks.length}
+                              onClose={() => setEditingTrackId(null)}
+                              onRename={async (title) => {
+                                await renameTrack(artist.id, track.id, title);
+                                setTracks(tracks.map((item) => (item.id === track.id ? { ...item, title } : item)));
+                              }}
+                              onMove={async (direction) => {
+                                const nextIndex = index + direction;
+                                if (nextIndex < 0 || nextIndex >= tracks.length) return;
+                                const next = tracks.slice();
+                                const [item] = next.splice(index, 1);
+                                if (!item) return;
+                                next.splice(nextIndex, 0, item);
+                                const reordered = next.map((itemTrack, order) => ({ ...itemTrack, order }));
+                                setTracks(reordered);
+                                try {
+                                  await saveTrackOrder(artist.id, reordered.map((itemTrack) => itemTrack.id));
+                                } catch (caught) {
+                                  setTrackError(explain(caught));
+                                  await refresh(openEventId ?? undefined);
+                                }
+                              }}
+                              onDelete={async () => {
+                                await deleteTrack(artist.id, track);
+                                setTracks(tracks.filter((item) => item.id !== track.id));
+                                setEditingTrackId(null);
+                              }}
+                            />
+                          </Expand>
+                          <Expand open={!editingThis}>
+                            <TrackRow
+                              track={track}
+                              current={player.currentId === track.id && player.artistId === artist.id}
+                              playing={player.currentId === track.id && player.artistId === artist.id && player.playing}
+                              owner={owner}
+                              onPlay={() => player.toggle(track, queue)}
+                              onEdit={() => setEditingTrackId(track.id)}
+                            />
+                          </Expand>
+                        </Fold>
+                      </li>
+                    );
+                  })}
+                </ol>
+              )}
+            </section>
+          </Fold>
+        </main>
+      </div>
     </div>
   );
 }
@@ -431,23 +607,19 @@ function StageView({
 function EventCard({
   event,
   open,
-  editing,
   owner,
-  uid,
   artistId,
   replace,
+  onEdit,
   onDelete,
-  onSaved,
 }: {
   event: EventItem;
   open: boolean;
-  editing: boolean;
   owner: boolean;
-  uid: string;
   artistId: string;
   replace: (path: string) => void;
+  onEdit: () => void;
   onDelete: () => Promise<void>;
-  onSaved: (id: string) => Promise<void>;
 }) {
   const [confirming, setConfirming] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -475,82 +647,107 @@ function EventCard({
   }
 
   return (
-    <li>
-      <article className={open ? "night is-open" : "night"} id={`event-${event.id}`}>
-        <button
-          type="button"
-          className="night-summary"
-          aria-expanded={open}
-          aria-controls={`event-panel-${event.id}`}
-          onClick={() => replace(open ? `/artist/${artistId}` : `/event/${event.id}`)}
-        >
+    <article className={open ? "night is-open" : "night"} id={`event-${event.id}`}>
+      <button
+        type="button"
+        className="night-summary"
+        aria-expanded={open}
+        aria-controls={`event-panel-${event.id}`}
+        onClick={() => replace(open ? `/artist/${artistId}` : `/event/${event.id}`)}
+      >
+        <span className="night-thumb">
           <Cover url={event.imageURL} alt="" />
-          <span className="night-copy">
-            <span className="night-title">{event.title}</span>
-            <span className="night-meta">{formatWhen(event.startsAt, "card")}</span>
-            <span className="night-meta">
-              {event.venue}, {event.city}
-            </span>
+        </span>
+        <span className="night-copy">
+          <span className="night-title">{event.title}</span>
+          <span className="night-meta">{formatWhen(event.startsAt, "card")}</span>
+          <span className="night-meta">
+            {event.venue}, {event.city}
           </span>
-          <Chevron />
-        </button>
-        <Expand open={open} id={`event-panel-${event.id}`}>
-          <div className="night-detail">
-            {event.imageURL ? <img className="night-photo" src={event.imageURL} alt="" /> : null}
-            <h3 className="night-detail-title">{event.title}</h3>
-            <p className="night-detail-when">{formatWhen(event.startsAt, "detail")}</p>
-            <p className="night-detail-place">
-              {event.venue}
-              <span>{event.city}</span>
-            </p>
-            {event.description ? <p className="stage-prose">{event.description}</p> : null}
-            {showTickets ? (
-              <a className="primary stage-tickets" href={tickets} target="_blank" rel="noopener noreferrer">
-                Get tickets
-              </a>
-            ) : null}
-            {owner ? (
-              <div className="stage-inline">
-                <button
-                  type="button"
-                  className="stage-quiet"
-                  aria-expanded={editing}
-                  onClick={() => replace(editing ? `/event/${event.id}` : `/event/${event.id}/edit`)}
-                >
-                  Edit event
+        </span>
+        <Chevron />
+      </button>
+      <Expand open={open} id={`event-panel-${event.id}`}>
+        <div className="night-detail">
+          {event.imageURL ? (
+            <div className="night-photo-wrap">
+              <img className="night-photo" src={event.imageURL} alt="" />
+            </div>
+          ) : null}
+          <p className="night-detail-when">{formatWhen(event.startsAt, "detail")}</p>
+          <p className="night-detail-place">
+            {event.venue}
+            <span>{event.city}</span>
+          </p>
+          {event.description ? <p className="stage-prose">{event.description}</p> : null}
+          {showTickets ? (
+            <a className="primary stage-tickets" href={tickets} target="_blank" rel="noopener noreferrer">
+              Get tickets
+            </a>
+          ) : null}
+          {owner ? (
+            <div className="stage-inline">
+              <button type="button" className="icon-btn" aria-label="Edit event" onClick={onEdit}>
+                <PencilIcon />
+              </button>
+              <button type="button" className="stage-text is-danger" onClick={() => void remove()} disabled={busy}>
+                {confirming ? "Delete this event" : "Delete"}
+              </button>
+              {confirming ? (
+                <button type="button" className="stage-text" onClick={() => setConfirming(false)} disabled={busy}>
+                  Cancel
                 </button>
-                <button type="button" className="stage-text is-danger" onClick={() => void remove()} disabled={busy}>
-                  {confirming ? "Delete this event" : "Delete event"}
-                </button>
-                {confirming ? (
-                  <button type="button" className="stage-text" onClick={() => setConfirming(false)} disabled={busy}>
-                    Cancel
-                  </button>
-                ) : null}
-              </div>
-            ) : null}
-            {error ? <p className="form-error" role="alert">{error}</p> : null}
-            {owner ? (
-              <Expand open={editing}>
-                <EventForm key={editing ? "edit" : "idle"} uid={uid} event={event} onClose={() => replace(`/event/${event.id}`)} onSaved={onSaved} />
-              </Expand>
-            ) : null}
-          </div>
-        </Expand>
-      </article>
-    </li>
+              ) : null}
+            </div>
+          ) : null}
+          {error ? <p className="form-error" role="alert">{error}</p> : null}
+        </div>
+      </Expand>
+    </article>
   );
 }
 
 function TrackRow({
   track,
-  index,
-  total,
-  artistImage,
   current,
   playing,
   owner,
   onPlay,
+  onEdit,
+}: {
+  track: Track;
+  current: boolean;
+  playing: boolean;
+  owner: boolean;
+  onPlay: () => void;
+  onEdit: () => void;
+}) {
+  const state = playing ? "is-playing" : current ? "is-paused" : "";
+  return (
+    <div className="track-row">
+      <button type="button" className="track-main" aria-pressed={playing} aria-label={playing ? `Pause ${track.title}` : `Play ${track.title}`} onClick={onPlay}>
+        <span className={`track-play ${state}`}>
+          {playing ? <NowMark /> : current ? <NowMark paused /> : <PlayIcon />}
+        </span>
+        <span className="track-copy">
+          <span className="track-title">{track.title}</span>
+          <span className="track-time">{formatDuration(track.duration)}</span>
+        </span>
+      </button>
+      {owner ? (
+        <button type="button" className="icon-btn" aria-label={`Edit ${track.title}`} onClick={onEdit}>
+          <PencilIcon />
+        </button>
+      ) : null}
+    </div>
+  );
+}
+
+function TrackEditor({
+  track,
+  index,
+  total,
+  onClose,
   onRename,
   onMove,
   onDelete,
@@ -558,21 +755,15 @@ function TrackRow({
   track: Track;
   index: number;
   total: number;
-  artistImage: string;
-  current: boolean;
-  playing: boolean;
-  owner: boolean;
-  onPlay: () => void;
+  onClose: () => void;
   onRename: (title: string) => Promise<void>;
   onMove: (direction: -1 | 1) => Promise<void>;
   onDelete: () => Promise<void>;
 }) {
-  const [open, setOpen] = useState(false);
   const [title, setTitle] = useState(track.title);
   const [confirming, setConfirming] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
-  const cover = track.coverURL || artistImage;
 
   useEffect(() => {
     setTitle(track.title);
@@ -589,7 +780,7 @@ function TrackRow({
     setError("");
     try {
       await onRename(next);
-      setOpen(false);
+      onClose();
     } catch (caught) {
       setError(explain(caught));
     } finally {
@@ -612,67 +803,38 @@ function TrackRow({
     }
   }
 
-  const className = `track${current ? " is-current" : ""}${playing ? " is-playing" : ""}`;
-
   return (
-    <li className={className} id={`track-${track.id}`}>
-      <div className="track-row">
-        <button type="button" className="track-main" aria-pressed={playing} onClick={onPlay}>
-          {cover ? <img src={cover} alt="" /> : <span className="track-letter" aria-hidden="true">{track.title.slice(0, 1).toUpperCase()}</span>}
-          <span className="track-copy">
-            <span className="track-title">
-              {playing ? <Bars /> : null}
-              {track.title}
-            </span>
-            <span className="track-time">{formatDuration(track.duration)}</span>
-          </span>
+    <form className="stage-form track-edit" onSubmit={(submit) => void save(submit)}>
+      <div className="stage-form-head">
+        <h3>Edit track</h3>
+        <button type="button" className="stage-text" onClick={onClose} disabled={busy}>
+          Close
         </button>
-        {owner ? (
-          <button type="button" className="stage-text" aria-expanded={open} onClick={() => setOpen((value) => !value)}>
-            Edit
+      </div>
+      <label className="field">
+        <span>Title</span>
+        <input value={title} maxLength={120} disabled={busy} autoComplete="off" onChange={(change) => setTitle(change.target.value)} />
+      </label>
+      <div className="stage-inline">
+        <button className="stage-quiet" type="submit" disabled={busy}>
+          {busy ? "Saving…" : "Save"}
+        </button>
+        <button type="button" className="stage-quiet" disabled={busy || index === 0} onClick={() => void onMove(-1)}>
+          Move up
+        </button>
+        <button type="button" className="stage-quiet" disabled={busy || index === total - 1} onClick={() => void onMove(1)}>
+          Move down
+        </button>
+        <button type="button" className="stage-text is-danger" disabled={busy} onClick={() => void remove()}>
+          {confirming ? "Delete track" : "Delete"}
+        </button>
+        {confirming ? (
+          <button type="button" className="stage-text" disabled={busy} onClick={() => setConfirming(false)}>
+            Cancel
           </button>
         ) : null}
       </div>
-      {owner ? (
-        <Expand open={open}>
-          <form className="track-edit" onSubmit={(submit) => void save(submit)}>
-            <label className="field">
-              <span>Title</span>
-              <input value={title} maxLength={120} disabled={busy} autoComplete="off" onChange={(change) => setTitle(change.target.value)} />
-            </label>
-            <div className="stage-inline">
-              <button className="stage-quiet" type="submit" disabled={busy}>
-                {busy ? "Saving…" : "Rename"}
-              </button>
-              <button type="button" className="stage-quiet" disabled={busy || index === 0} onClick={() => void onMove(-1)}>
-                Move up
-              </button>
-              <button type="button" className="stage-quiet" disabled={busy || index === total - 1} onClick={() => void onMove(1)}>
-                Move down
-              </button>
-              <button type="button" className="stage-text is-danger" disabled={busy} onClick={() => void remove()}>
-                {confirming ? "Delete track" : "Delete"}
-              </button>
-              {confirming ? (
-                <button type="button" className="stage-text" disabled={busy} onClick={() => setConfirming(false)}>
-                  Cancel
-                </button>
-              ) : null}
-            </div>
-            {error ? <p className="form-error" role="alert">{error}</p> : null}
-          </form>
-        </Expand>
-      ) : null}
-    </li>
-  );
-}
-
-function Bars() {
-  return (
-    <span className="eq" aria-hidden="true">
-      <span />
-      <span />
-      <span />
-    </span>
+      {error ? <p className="form-error" role="alert">{error}</p> : null}
+    </form>
   );
 }
