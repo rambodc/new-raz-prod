@@ -19,6 +19,12 @@ service firebase.storage {
         && request.resource.contentType.matches('image/(jpeg|png|webp)');
     }
 
+    function isAudio() {
+      return request.resource.size > 0
+        && request.resource.size < 30 * 1024 * 1024
+        && request.resource.contentType.matches('audio/.*');
+    }
+
     function userDoc() {
       return /databases/(default)/documents/users/$(request.auth.uid);
     }
@@ -47,6 +53,17 @@ service firebase.storage {
         && request.auth.uid == artistId
         && safeFile(file)
         && isImage();
+      allow delete: if isArtistUser() && safeId(artistId) && request.auth.uid == artistId;
+    }
+
+    // Track audio is public to read. Only that artist can write, and only audio under 30 MB.
+    match /artists/{artistId}/tracks/{file} {
+      allow read: if true;
+      allow create, update: if isArtistUser()
+        && safeId(artistId)
+        && request.auth.uid == artistId
+        && safeFile(file)
+        && isAudio();
       allow delete: if isArtistUser() && safeId(artistId) && request.auth.uid == artistId;
     }
 

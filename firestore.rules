@@ -6,8 +6,10 @@ service cloud.firestore {
     // role is "fan" or "artist". Clients create fans only and can never change role or email.
     // artists/{uid}: name, bio, imageURL, ownerUid, createdAt, updatedAt. Public read.
     //   Created by setUserRole (Admin SDK). The owner may update name, bio and imageURL only.
-    // events/{eventId}: artistId, title, startsAt, venue, city, description, imageURL, createdAt, updatedAt.
-    //   Public read. Only the owning artist, with users/{uid}.role == "artist", can write.
+    // events/{eventId}: artistId, title, startsAt, venue, city, description, imageURL, ticketUrl, createdAt, updatedAt.
+    //   ticketUrl is empty or an http(s) link. Public read. Only the owning artist, with role artist, can write.
+    // artists/{artistId}/tracks/{trackId}: title, duration, order, audioURL, coverURL, createdAt, updatedAt.
+    //   Public read. Only that artist can write. Audio lives in Storage at artists/{artistId}/tracks/.
     // loginCodes and authRateLimits are written only by Cloud Functions (the Admin SDK).
     // A photo URL is empty or a download URL for this user's own avatar.
 
@@ -172,11 +174,22 @@ service cloud.firestore {
         && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['name', 'bio', 'imageURL', 'updatedAt']);
     }
 
+    function validTicket(url) {
+      return url is string && (
+        url.size() == 0
+        || (
+          url.size() >= 8
+          && url.size() <= 2048
+          && (url.matches('^https://\\S+$') || url.matches('^http://\\S+$'))
+        )
+      );
+    }
+
     function validEvent(eventId) {
       let d = request.resource.data;
       return safeId(eventId)
-        && d.keys().hasOnly(['artistId', 'title', 'startsAt', 'venue', 'city', 'description', 'imageURL', 'createdAt', 'updatedAt'])
-        && d.keys().hasAll(['artistId', 'title', 'startsAt', 'venue', 'city', 'description', 'imageURL', 'createdAt', 'updatedAt'])
+        && d.keys().hasOnly(['artistId', 'title', 'startsAt', 'venue', 'city', 'description', 'imageURL', 'ticketUrl', 'createdAt', 'updatedAt'])
+        && d.keys().hasAll(['artistId', 'title', 'startsAt', 'venue', 'city', 'description', 'imageURL', 'ticketUrl', 'createdAt', 'updatedAt'])
         && d.artistId == request.auth.uid
         && textOk(d.title, 120)
         && d.startsAt is timestamp
@@ -184,6 +197,7 @@ service cloud.firestore {
         && textOk(d.city, 80)
         && textOk(d.description, 2000)
         && urlInFolder(d.imageURL, 'events', eventId)
+        && validTicket(d.ticketUrl)
         && d.createdAt is timestamp
         && d.updatedAt is timestamp;
     }
@@ -202,8 +216,62 @@ service cloud.firestore {
         && request.resource.data.createdAt == resource.data.createdAt
         && request.resource.data.updatedAt == request.time
         && request.resource.data.diff(resource.data).affectedKeys()
-          .hasOnly(['title', 'startsAt', 'venue', 'city', 'description', 'imageURL', 'updatedAt']);
+          .hasOnly(['title', 'startsAt', 'venue', 'city', 'description', 'imageURL', 'ticketUrl', 'updatedAt']);
       allow delete: if callerIsArtist() && resource.data.artistId == request.auth.uid;
+    }
+
+    function urlInTracks(url, artistId) {
+      return urlInFolder(url, 'artists', artistId) && (
+        url.matches('.*artists%2F' + artistId + '%2Ftracks%2F.*')
+        || url.matches('.*/artists/' + artistId + '/tracks/.*')
+      );
+    }
+
+    function imageCover(url, artistId) {
+      return urlInFolder(url, 'artists', artistId)
+        && url.matches('.*\\.(jpg|jpeg|png|webp)(\\?.*)?$');
+    }
+
+    function ownsArtistPage(artistId) {
+      return callerIsArtist()
+        && request.auth.uid == artistId
+        && exists(/databases/$(database)/documents/artists/$(artistId))
+        && get(/databases/$(database)/documents/artists/$(artistId)).data.ownerUid == request.auth.uid;
+    }
+
+    function validTrack(artistId, trackId) {
+      let d = request.resource.data;
+      return safeId(trackId)
+        && safeId(artistId)
+        && d.keys().hasOnly(['title', 'duration', 'order', 'audioURL', 'coverURL', 'createdAt', 'updatedAt'])
+        && d.keys().hasAll(['title', 'duration', 'order', 'audioURL', 'coverURL', 'createdAt', 'updatedAt'])
+        && textOk(d.title, 120)
+        && d.duration is number
+        && d.duration > 0
+        && d.duration <= 14400
+        && d.order is int
+        && d.order >= 0
+        && d.order <= 1000
+        && urlInTracks(d.audioURL, artistId)
+        && (d.coverURL == '' || imageCover(d.coverURL, artistId))
+        && d.createdAt is timestamp
+        && d.updatedAt is timestamp;
+    }
+
+    // Tracks are public. A fan cannot write one, and an artist cannot write someone else's.
+    match /artists/{artistId}/tracks/{trackId} {
+      allow read: if true;
+      allow create: if ownsArtistPage(artistId)
+        && validTrack(artistId, trackId)
+        && request.resource.data.createdAt == request.time
+        && request.resource.data.updatedAt == request.time;
+      allow update: if ownsArtistPage(artistId)
+        && validTrack(artistId, trackId)
+        && request.resource.data.createdAt == resource.data.createdAt
+        && request.resource.data.updatedAt == request.time
+        && request.resource.data.diff(resource.data).affectedKeys()
+          .hasOnly(['title', 'duration', 'order', 'audioURL', 'coverURL', 'updatedAt']);
+      allow delete: if ownsArtistPage(artistId);
     }
 
     // Shows are readable by signed-in users. Admins add them, change the end time, or delete them.

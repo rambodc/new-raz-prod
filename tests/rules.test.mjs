@@ -219,6 +219,7 @@ function eventDoc(id, extra = {}) {
     city: "Calgary",
     description: "An intimate late-night set.",
     imageURL: eventImage(id),
+    ticketUrl: "",
     createdAt: serverTimestamp(),
     updatedAt: serverTimestamp(),
     ...extra,
@@ -283,6 +284,77 @@ test("artist pages and events are public to read, and only the owning artist can
   await assertSucceeds(deleteDoc(doc(nova, "events/night1")));
 });
 
+test("ticket links are optional http(s) urls and only the owning artist can set one", async () => {
+  await seedArtist("nova");
+  await seedArtist("ada", "fan");
+  const nova = authed("nova", "nova@example.com");
+  const ada = authed("ada");
+  const anon = testEnv.unauthenticatedContext().firestore();
+  await assertSucceeds(setDoc(doc(nova, "events/tix1"), eventDoc("tix1", { ticketUrl: "" })));
+  await assertSucceeds(updateDoc(doc(nova, "events/tix1"), { ticketUrl: "https://tickets.example.com/nova", updatedAt: serverTimestamp() }));
+  await assertSucceeds(updateDoc(doc(nova, "events/tix1"), { ticketUrl: "http://box.example.com/tix", updatedAt: serverTimestamp() }));
+  await assertSucceeds(getDoc(doc(anon, "events/tix1")));
+  const missing = eventDoc("tix2");
+  delete missing.ticketUrl;
+  await assertFails(setDoc(doc(nova, "events/tix2"), missing));
+  await assertFails(setDoc(doc(nova, "events/tix2"), eventDoc("tix2", { ticketUrl: "javascript:alert(1)" })));
+  await assertFails(setDoc(doc(nova, "events/tix2"), eventDoc("tix2", { ticketUrl: "ftp://files.example.com/a" })));
+  await assertFails(setDoc(doc(nova, "events/tix2"), eventDoc("tix2", { ticketUrl: `https://${"a".repeat(2048)}` })));
+  await assertFails(updateDoc(doc(ada, "events/tix1"), { ticketUrl: "https://evil.example/x", updatedAt: serverTimestamp() }));
+  await assertFails(setDoc(doc(ada, "events/tix3"), eventDoc("tix3", { artistId: "ada", ticketUrl: "https://tickets.example.com/ada" })));
+});
+
+const trackAudio = (id, file = "t1.mp3") =>
+  `https://firebasestorage.googleapis.com/v0/b/new-raz-prod.firebasestorage.app/o/artists%2F${id}%2Ftracks%2F${file}?alt=media`;
+
+function trackDoc(extra = {}) {
+  return {
+    title: "Midnight",
+    duration: 182.4,
+    order: 0,
+    audioURL: trackAudio("nova"),
+    coverURL: "",
+    createdAt: serverTimestamp(),
+    updatedAt: serverTimestamp(),
+    ...extra,
+  };
+}
+
+test("tracks are public to read and only the owning artist can write them", async () => {
+  await seedArtist("nova");
+  await seedArtist("ada", "fan");
+  await seedArtist("bob");
+  const nova = authed("nova", "nova@example.com");
+  const ada = authed("ada");
+  const bob = authed("bob", "bob@example.com");
+  const anon = testEnv.unauthenticatedContext().firestore();
+
+  await assertSucceeds(setDoc(doc(nova, "artists/nova/tracks/t1"), trackDoc()));
+  await assertSucceeds(setDoc(doc(nova, "artists/nova/tracks/tInt"), trackDoc({ duration: 180, order: 1 })));
+  await assertSucceeds(getDoc(doc(anon, "artists/nova/tracks/t1")));
+  await assertSucceeds(getDocs(query(collection(anon, "artists/nova/tracks"), orderBy("order", "asc"))));
+  await assertSucceeds(updateDoc(doc(nova, "artists/nova/tracks/t1"), { title: "Dawn", updatedAt: serverTimestamp() }));
+  await assertSucceeds(updateDoc(doc(nova, "artists/nova/tracks/t1"), { order: 2, updatedAt: serverTimestamp() }));
+  await assertSucceeds(updateDoc(doc(nova, "artists/nova/tracks/t1"), { coverURL: artistImage("nova"), updatedAt: serverTimestamp() }));
+  await assertFails(setDoc(doc(ada, "artists/nova/tracks/t2"), trackDoc()));
+  await assertFails(setDoc(doc(ada, "artists/ada/tracks/t2"), trackDoc()));
+  await assertFails(setDoc(doc(bob, "artists/nova/tracks/t2"), trackDoc()));
+  await assertFails(updateDoc(doc(ada, "artists/nova/tracks/t1"), { title: "Hacked", updatedAt: serverTimestamp() }));
+  await assertFails(deleteDoc(doc(ada, "artists/nova/tracks/t1")));
+  await assertFails(deleteDoc(doc(bob, "artists/nova/tracks/t1")));
+  await assertFails(setDoc(doc(nova, "artists/nova/tracks/t2"), trackDoc({ audioURL: "https://evil.example/a.mp3" })));
+  await assertFails(setDoc(doc(nova, "artists/nova/tracks/t2"), trackDoc({ audioURL: artistImage("nova") })));
+  await assertFails(setDoc(doc(nova, "artists/nova/tracks/t2"), trackDoc({ coverURL: artistImage("ada") })));
+  await assertFails(setDoc(doc(nova, "artists/nova/tracks/t2"), trackDoc({ coverURL: "javascript:alert(1)" })));
+  await assertFails(setDoc(doc(nova, "artists/nova/tracks/t2"), trackDoc({ title: "" })));
+  await assertFails(setDoc(doc(nova, "artists/nova/tracks/t2"), trackDoc({ duration: -1 })));
+  await assertFails(setDoc(doc(nova, "artists/nova/tracks/t2"), trackDoc({ duration: 20000 })));
+  await assertFails(setDoc(doc(nova, "artists/nova/tracks/t2"), trackDoc({ order: 1.5 })));
+  await assertFails(setDoc(doc(nova, "artists/nova/tracks/t2"), trackDoc({ order: -1 })));
+  await assertFails(setDoc(doc(anon, "artists/nova/tracks/t2"), trackDoc()));
+  await assertSucceeds(deleteDoc(doc(nova, "artists/nova/tracks/t1")));
+});
+
 test("a fan can read only their own numbers and check-ins, and cannot write them", async () => {
   await seedAdminAndData();
   const ada = authed("ada");
@@ -340,6 +412,34 @@ test("artist and event images are public to read, and only the owning artist can
   await assertFails(uploadBytes(ref(anon, "events/e1/cover.jpg"), jpeg, { contentType: "image/jpeg" }));
   await assertFails(deleteObject(ref(bob, "events/e1/cover.jpg")));
   await assertSucceeds(deleteObject(ref(nova, "events/e1/cover.jpg")));
+});
+
+test("track audio is public to read, audio only, under 30 MB, and only the owning artist can write it", async () => {
+  await seedArtist("nova");
+  await seedArtist("bob");
+  await seed();
+  const mp3 = new Uint8Array([0x49, 0x44, 0x33, 0x03]);
+  const nova = testEnv.authenticatedContext("nova", { email: "nova@example.com" }).storage();
+  const bob = testEnv.authenticatedContext("bob", { email: "bob@example.com" }).storage();
+  const ada = testEnv.authenticatedContext("ada", { email: EMAIL }).storage();
+  const anon = testEnv.unauthenticatedContext().storage();
+
+  await assertSucceeds(uploadBytes(ref(nova, "artists/nova/tracks/t1.mp3"), mp3, { contentType: "audio/mpeg" }));
+  await assertSucceeds(uploadBytes(ref(nova, "artists/nova/tracks/a.m4a"), mp3, { contentType: "audio/mp4" }));
+  await assertSucceeds(uploadBytes(ref(nova, "artists/nova/tracks/a.aac"), mp3, { contentType: "audio/aac" }));
+  await assertSucceeds(uploadBytes(ref(nova, "artists/nova/tracks/a.wav"), mp3, { contentType: "audio/wav" }));
+  await assertSucceeds(getBytes(ref(anon, "artists/nova/tracks/t1.mp3")));
+  await assertFails(uploadBytes(ref(ada, "artists/nova/tracks/nope.mp3"), mp3, { contentType: "audio/mpeg" }));
+  await assertFails(uploadBytes(ref(ada, "artists/ada/tracks/nope.mp3"), mp3, { contentType: "audio/mpeg" }));
+  await assertFails(uploadBytes(ref(nova, "artists/bob/tracks/nope.mp3"), mp3, { contentType: "audio/mpeg" }));
+  await assertFails(uploadBytes(ref(anon, "artists/nova/tracks/nope.mp3"), mp3, { contentType: "audio/mpeg" }));
+  await assertFails(uploadBytes(ref(nova, "artists/nova/tracks/t1.mp3"), mp3, { contentType: "text/html" }));
+  await assertFails(uploadBytes(ref(nova, "artists/nova/tracks/t1.jpg"), mp3, { contentType: "image/jpeg" }));
+  await assertFails(uploadBytes(ref(nova, "artists/nova/song.mp3"), mp3, { contentType: "audio/mpeg" }));
+  await assertFails(uploadBytes(ref(nova, "artists/nova/tracks/big.mp3"), new Uint8Array(30 * 1024 * 1024), { contentType: "audio/mpeg" }));
+  await assertFails(deleteObject(ref(bob, "artists/nova/tracks/t1.mp3")));
+  await assertFails(deleteObject(ref(ada, "artists/nova/tracks/t1.mp3")));
+  await assertSucceeds(deleteObject(ref(nova, "artists/nova/tracks/t1.mp3")));
 });
 
 test("everything else in Storage stays closed", async () => {

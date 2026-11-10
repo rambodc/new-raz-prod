@@ -46,6 +46,41 @@ export function timeInputValue(date: Date): string {
   return `${String(date.getHours()).padStart(2, "0")}:${String(date.getMinutes()).padStart(2, "0")}`;
 }
 
+export function cleanTicketUrl(value: string): string {
+  const trimmed = value.trim();
+  if (!trimmed) return "";
+  try {
+    const url = new URL(trimmed);
+    if ((url.protocol !== "http:" && url.protocol !== "https:") || url.hostname.length === 0) return trimmed;
+    return url.href;
+  } catch {
+    return trimmed;
+  }
+}
+
+export function validTicketUrl(value: string): boolean {
+  if (value.length === 0) return true;
+  if (value.length > 2048 || /\s/.test(value)) return false;
+  try {
+    const url = new URL(value);
+    return (url.protocol === "http:" || url.protocol === "https:") && url.hostname.length > 0;
+  } catch {
+    return false;
+  }
+}
+
+export function formatDuration(seconds: number): string {
+  if (!Number.isFinite(seconds) || seconds <= 0) return "0:00";
+  const total = Math.min(Math.round(seconds), 14400);
+  const hours = Math.floor(total / 3600);
+  const minutes = Math.floor((total % 3600) / 60);
+  const secs = total % 60;
+  const minuteText = String(minutes).padStart(hours > 0 ? 2 : 1, "0");
+  const secondText = String(secs).padStart(2, "0");
+  if (hours > 0) return `${hours}:${minuteText}:${secondText}`;
+  return `${minuteText}:${secondText}`;
+}
+
 export function combineLocal(date: string, time: string): Date | null {
   const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(date);
   const clock = /^(\d{2}):(\d{2})$/.exec(time);

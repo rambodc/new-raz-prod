@@ -1,6 +1,5 @@
 import { useEffect, useRef, useState, type ClipboardEvent, type FormEvent } from "react";
-import { ArtistEditScreen, ArtistScreen } from "./artist";
-import { EventEditScreen, EventScreen } from "./event";
+import { ArtistStage } from "./artist";
 import { HomeScreen } from "./home";
 import { cleanEmail, cleanName, validEmail, validName, type Profile } from "./profile";
 import { currentPath, parseRoute } from "./routes";
@@ -177,10 +176,9 @@ export default function App() {
   if (route.name === "home") {
     return <HomeScreen uid={screen.uid} profile={profile} photoVersion={photoVersion} onSettings={() => go("/settings")} go={go} />;
   }
-  if (route.name === "artist") return <ArtistScreen id={route.id} {...screen} />;
-  if (route.name === "artist-edit") return <ArtistEditScreen id={route.id} {...screen} />;
-  if (route.name === "event") return <EventScreen id={route.id} {...screen} />;
-  if (route.name === "event-edit") return <EventEditScreen id={route.id} {...screen} replace={replace} />;
+  if (route.name === "artist" || route.name === "artist-edit" || route.name === "event" || route.name === "event-edit") {
+    return <ArtistStage route={route} uid={screen.uid} profile={profile} go={go} replace={replace} back={backHome} />;
+  }
 
   return (
     <Scene variant="home">
