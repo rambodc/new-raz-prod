@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { combineLocal, formatClock, formatDay, formatWhen, validBlock, validLine } from "./format";
+import { cleanTicketUrl, combineLocal, formatClock, formatDay, formatDuration, formatWhen, validBlock, validLine, validTicketUrl } from "./format";
 
 describe("event dates", () => {
   const night = new Date(2026, 10, 21, 22, 0, 0, 0);
@@ -21,6 +21,24 @@ describe("event dates", () => {
     expect(combined?.getHours()).toBe(22);
     expect(combineLocal("2026-02-31", "10:00")).toBeNull();
     expect(combineLocal("friday", "10:00")).toBeNull();
+  });
+
+  it("accepts an empty ticket link and only http or https links", () => {
+    expect(validTicketUrl("")).toBe(true);
+    expect(validTicketUrl("https://tickets.example.com/nova")).toBe(true);
+    expect(validTicketUrl("http://box.example.com/tix")).toBe(true);
+    expect(cleanTicketUrl("  HTTPS://Example.com/night  ")).toBe("https://example.com/night");
+    expect(validTicketUrl("javascript:alert(1)")).toBe(false);
+    expect(validTicketUrl("ftp://files.example.com/a")).toBe(false);
+    expect(validTicketUrl("https://")).toBe(false);
+    expect(validTicketUrl("not a url")).toBe(false);
+  });
+
+  it("formats a track length", () => {
+    expect(formatDuration(0)).toBe("0:00");
+    expect(formatDuration(65)).toBe("1:05");
+    expect(formatDuration(3725)).toBe("1:02:05");
+    expect(formatDuration(Number.NaN)).toBe("0:00");
   });
 
   it("limits names and allows an empty bio", () => {

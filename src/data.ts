@@ -1,6 +1,7 @@
 import { FirebaseError } from "firebase/app";
-import { collection, deleteDoc, doc, getDoc, getDocs, limit, orderBy, query, serverTimestamp, setDoc, Timestamp, updateDoc, where } from "firebase/firestore";
+import { collection, deleteDoc, doc, getDoc, getDocs, limit, orderBy, query, serverTimestamp, setDoc, Timestamp, updateDoc, where, writeBatch } from "firebase/firestore";
 import { deleteObject, getDownloadURL, ref, uploadBytes } from "firebase/storage";
+import { AUDIO_LIMIT, audioKind } from "./audio";
 import { client, storageObjectUrl } from "./firebase";
 import type { Role } from "./profile";
 import { resizeImage } from "./resizeImage";
@@ -22,6 +23,7 @@ export type EventItem = {
   city: string;
   description: string;
   imageURL: string;
+  ticketUrl: string;
 };
 
 export type EventInput = {
@@ -31,6 +33,22 @@ export type EventInput = {
   city: string;
   description: string;
   imageURL: string;
+  ticketUrl: string;
+};
+
+export type Track = {
+  id: string;
+  title: string;
+  duration: number;
+  order: number;
+  audioURL: string;
+  coverURL: string;
+};
+
+export type ArtistPageData = {
+  artist: Artist | null;
+  events: EventItem[];
+  tracks: Track[];
 };
 
 const HERO = { maxEdge: 1600, maxBytes: 4_200_000 };
@@ -69,7 +87,17 @@ export function readEvent(id: string, data: Record<string, unknown>): EventItem 
     city: asString(data.city),
     description: asString(data.description),
     imageURL: asString(data.imageURL),
+    ticketUrl: asString(data.ticketUrl).trim(),
   };
+}
+
+export function readTrack(id: string, data: Record<string, unknown>): Track | null {
+  const title = asString(data.title).trim();
+  const duration = typeof data.duration === "number" ? data.duration : Number.NaN;
+  const order = typeof data.order === "number" ? data.order : Number.NaN;
+  const audioURL = asString(data.audioURL);
+  if (!title || !Number.isFinite(duration) || !Number.isFinite(order) || !audioURL) return null;
+  return { id, title, duration, order, audioURL, coverURL: asString(data.coverURL) };
 }
 
 function eventsFrom(docs: Array<{ id: string; data: () => Record<string, unknown> }>): EventItem[] {
@@ -112,10 +140,35 @@ export async function loadHome(uid: string, role: Role): Promise<{ artist: Artis
   return { artist, events };
 }
 
-export async function loadArtistPage(id: string): Promise<{ artist: Artist | null; events: EventItem[] }> {
+export async function listTracks(artistId: string): Promise<Track[]> {
+  const { db } = await client();
+  const snap = await getDocs(query(collection(db, "artists", artistId, "tracks"), orderBy("order", "asc"), limit(100)));
+  return snap.docs
+    .flatMap((item) => {
+      const track = readTrack(item.id, item.data());
+      return track ? [track] : [];
+    })
+    .sort((a, b) => a.order - b.order || a.title.localeCompare(b.title) || a.id.localeCompare(b.id));
+}
+
+export async function loadArtistPage(id: string, ensureEventId?: string): Promise<ArtistPageData> {
   const artist = await getArtist(id);
-  if (!artist) return { artist: null, events: [] };
-  return { artist, events: await listArtistEvents(id) };
+  if (!artist) return { artist: null, events: [], tracks: [] };
+  const [events, tracks] = await Promise.all([listArtistEvents(id), listTracks(id)]);
+  if (ensureEventId && !events.some((event) => event.id === ensureEventId)) {
+    const extra = await getEvent(ensureEventId);
+    if (extra && extra.artistId === id) {
+      events.push(extra);
+      events.sort((a, b) => a.startsAt.getTime() - b.startsAt.getTime());
+    }
+  }
+  return { artist, events, tracks };
+}
+
+export async function loadLinkedArtist(eventId: string): Promise<ArtistPageData> {
+  const event = await getEvent(eventId);
+  if (!event) return { artist: null, events: [], tracks: [] };
+  return loadArtistPage(event.artistId, eventId);
 }
 
 export async function loadEventPage(id: string): Promise<{ event: EventItem | null; artist: Artist | null }> {
@@ -157,6 +210,7 @@ export async function publishEvent(uid: string, input: EventInput, file: File): 
     city: input.city,
     description: input.description,
     imageURL: storageObjectUrl(path),
+    ticketUrl: input.ticketUrl,
     createdAt: serverTimestamp(),
     updatedAt: serverTimestamp(),
   });
@@ -182,8 +236,91 @@ export async function saveEvent(id: string, input: EventInput, file: File | null
     city: input.city,
     description: input.description,
     imageURL,
+    ticketUrl: input.ticketUrl,
     updatedAt: serverTimestamp(),
   });
+}
+
+function isMissingObject(error: unknown): boolean {
+  return error instanceof FirebaseError && error.code.includes("object-not-found");
+}
+
+async function removeFile(path: string): Promise<void> {
+  const { storage } = await client();
+  try {
+    await deleteObject(ref(storage, path));
+  } catch (error) {
+    if (!isMissingObject(error)) throw error;
+  }
+}
+
+function audioPathFromUrl(url: string, artistId: string): string | null {
+  let decoded = url;
+  try {
+    decoded = decodeURIComponent(url);
+  } catch {
+    decoded = url;
+  }
+  const match = new RegExp(`artists/${artistId}/tracks/([^?#]+)`).exec(decoded);
+  return match ? `artists/${artistId}/tracks/${match[1]}` : null;
+}
+
+export async function publishTrack(
+  artistId: string,
+  input: { title: string; duration: number; order: number },
+  audio: File,
+  cover: File | null,
+): Promise<string> {
+  const kind = audioKind(audio);
+  if (!kind) throw new Error("Use an mp3, m4a, aac or wav file.");
+  if (audio.size <= 0 || audio.size >= AUDIO_LIMIT) throw new Error("Keep the audio file under 30 MB.");
+  if (!Number.isFinite(input.duration) || input.duration <= 0 || input.duration > 14400) throw new Error("Couldn't use the length of that file.");
+  const { db, storage } = await client();
+  const id = doc(collection(db, "artists", artistId, "tracks")).id;
+  const audioPath = `artists/${artistId}/tracks/${id}.${kind.ext}`;
+  const coverPath = `artists/${artistId}/cover-${id}.jpg`;
+  const storedAudio = ref(storage, audioPath);
+  await uploadBytes(storedAudio, audio, { contentType: kind.contentType, cacheControl: "public,max-age=3600" });
+  try {
+    const coverURL = cover ? await putImage(coverPath, cover) : "";
+    const audioURL = await getDownloadURL(storedAudio);
+    await setDoc(doc(db, "artists", artistId, "tracks", id), {
+      title: input.title,
+      duration: Math.round(input.duration * 1000) / 1000,
+      order: Math.max(0, Math.round(input.order)),
+      audioURL,
+      coverURL,
+      createdAt: serverTimestamp(),
+      updatedAt: serverTimestamp(),
+    });
+    return id;
+  } catch (error) {
+    await removeFile(audioPath);
+    if (cover) await removeFile(coverPath);
+    throw error;
+  }
+}
+
+export async function renameTrack(artistId: string, trackId: string, title: string): Promise<void> {
+  const { db } = await client();
+  await updateDoc(doc(db, "artists", artistId, "tracks", trackId), { title, updatedAt: serverTimestamp() });
+}
+
+export async function saveTrackOrder(artistId: string, ids: string[]): Promise<void> {
+  const { db } = await client();
+  const batch = writeBatch(db);
+  ids.forEach((id, index) => {
+    batch.update(doc(db, "artists", artistId, "tracks", id), { order: index, updatedAt: serverTimestamp() });
+  });
+  await batch.commit();
+}
+
+export async function deleteTrack(artistId: string, track: Track): Promise<void> {
+  const audioPath = audioPathFromUrl(track.audioURL, artistId);
+  if (audioPath) await removeFile(audioPath);
+  if (track.coverURL.includes(`cover-${track.id}`)) await removeFile(`artists/${artistId}/cover-${track.id}.jpg`);
+  const { db } = await client();
+  await deleteDoc(doc(db, "artists", artistId, "tracks", track.id));
 }
 
 export async function deleteEvent(id: string): Promise<void> {
