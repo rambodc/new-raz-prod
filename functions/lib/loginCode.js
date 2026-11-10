@@ -134,10 +134,10 @@ function redact(message) {
  * Sends one code through Resend. Returns `{ error }` instead of throwing for API failures.
  * The API key is never logged.
  */
-export async function sendWithResend(apiKey, { to, code, idempotencyKey }) {
+export async function sendWithResend(apiKey, { to, code, idempotencyKey, mail }) {
   if (!apiKey) return { error: { message: "missing-key" } };
   const resend = new Resend(apiKey);
-  const { subject, html, text } = loginEmail(code);
+  const { subject, html, text } = mail ?? loginEmail(code);
   let last = { message: "send-failed", statusCode: 0 };
   for (let attempt = 0; attempt < 3; attempt += 1) {
     try {

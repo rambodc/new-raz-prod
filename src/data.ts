@@ -4,7 +4,7 @@ import { deleteObject, getDownloadURL, ref, uploadBytes } from "firebase/storage
 import { AUDIO_LIMIT, audioKind } from "./audio";
 import { client, storageObjectUrl } from "./firebase";
 import type { Role } from "./profile";
-import { resizeImage } from "./resizeImage";
+import { resizeImage, type ImageCrop } from "./resizeImage";
 
 export type Artist = {
   id: string;
@@ -52,6 +52,7 @@ export type ArtistPageData = {
 };
 
 const HERO = { maxEdge: 2000, maxBytes: 3_600_000, quality: 0.9 };
+const ARTIST_PHOTO = { maxEdge: 2400, maxBytes: 3_600_000, quality: 0.92 };
 
 function asString(value: unknown): string {
   return typeof value === "string" ? value : "";
@@ -129,9 +130,7 @@ export async function listUpcomingEvents(): Promise<EventItem[]> {
 
 export async function listArtistEvents(artistId: string): Promise<EventItem[]> {
   const { db } = await client();
-  const snap = await getDocs(
-    query(collection(db, "events"), where("artistId", "==", artistId), where("startsAt", ">=", Timestamp.fromDate(new Date())), orderBy("startsAt", "asc"), limit(40)),
-  );
+  const snap = await getDocs(query(collection(db, "events"), where("artistId", "==", artistId), orderBy("startsAt", "asc"), limit(80)));
   return eventsFrom(snap.docs);
 }
 
@@ -188,16 +187,16 @@ export async function loadEventPage(id: string): Promise<{ event: EventItem | nu
   return { event, artist: await getArtist(event.artistId) };
 }
 
-async function putImage(path: string, file: File): Promise<string> {
-  const blob = await resizeImage(file, HERO);
+async function putImage(path: string, file: File, options: { maxEdge: number; maxBytes: number; quality: number; crop?: ImageCrop } = HERO): Promise<string> {
+  const blob = await resizeImage(file, options);
   const { storage } = await client();
   const stored = ref(storage, path);
   await uploadBytes(stored, blob, { contentType: "image/jpeg", cacheControl: "public,max-age=3600" });
   return cacheBust(await getDownloadURL(stored));
 }
 
-export async function saveArtist(uid: string, input: { name: string; bio: string; imageURL: string }, file: File | null): Promise<void> {
-  const imageURL = file ? await putImage(`artists/${uid}/cover.jpg`, file) : input.imageURL;
+export async function saveArtist(uid: string, input: { name: string; bio: string; imageURL: string }, file: File | null, crop?: ImageCrop | null): Promise<void> {
+  const imageURL = file ? await putImage(`artists/${uid}/cover.jpg`, file, crop ? { ...ARTIST_PHOTO, crop } : HERO) : input.imageURL;
   const { db } = await client();
   await updateDoc(doc(db, "artists", uid), {
     name: input.name,

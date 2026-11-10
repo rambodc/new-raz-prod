@@ -2,10 +2,10 @@ import { useEffect, useRef, useState, type FormEvent, type ReactNode, type Trans
 import { ownsArtist } from "./access";
 import { deleteEvent, deleteTrack, loadArtistPage, loadLinkedArtist, renameTrack, saveTrackOrder, type Artist, type ArtistPageData, type EventItem, type Track } from "./data";
 import { ArtistForm, EventForm, TrackForm } from "./forms";
+import { splitByTime } from "./events";
 import { cleanLine, cleanTicketUrl, formatDuration, formatWhen, validLine, validTicketUrl } from "./format";
 import { useReducedMotion } from "./motion";
-import { Logo } from "./logo";
-import { PauseIcon, PlayIcon, usePlayer } from "./player";
+import { PlayIcon, usePlayer } from "./player";
 import type { Profile, Role } from "./profile";
 import type { Route } from "./routes";
 import { explain } from "./services";
@@ -125,26 +125,49 @@ function StageBackdrop({ image, reduced }: { image: string; reduced: boolean }) 
   const blurRef = useRef<HTMLImageElement>(null);
   const dimRef = useRef<HTMLDivElement>(null);
   const wide = useWideStage();
+  const [blurSrc, setBlurSrc] = useState("");
+
+  useEffect(() => {
+    if (!image || wide) return;
+    let cancelled = false;
+    let url = "";
+    void precomputeBlur(image).then((next) => {
+      if (cancelled || !next) return;
+      url = next;
+      setBlurSrc(next);
+    });
+    return () => {
+      cancelled = true;
+      if (url.startsWith("blob:")) URL.revokeObjectURL(url);
+    };
+  }, [image, wide]);
 
   useEffect(() => {
     const sharp = sharpRef.current;
     const blur = blurRef.current;
     const dim = dimRef.current;
-    if (!sharp || !blur || !dim) return;
-    const paint = (progress: number) => {
-      const t = progress * progress * (3 - 2 * progress);
-      sharp.style.opacity = String(1 - t * (wide ? 0.55 : 0.92));
-      blur.style.opacity = String(t * (wide ? 0.72 : 1));
-      dim.style.opacity = String((wide ? 0.08 : 0.12) + t * (wide ? 0.28 : 0.46));
-    };
-    if (reduced) {
-      paint(wide ? 0.2 : 0.85);
+    if (!sharp || !dim) return;
+    if (wide || reduced) {
+      sharp.style.opacity = "1";
+      if (blur) blur.style.opacity = "0";
+      dim.style.opacity = wide ? "0" : reduced ? "0.45" : "0.12";
       return;
     }
+    const paint = (progress: number) => {
+      const t = progress * progress * (3 - 2 * progress);
+      sharp.style.opacity = String(1 - t * 0.92);
+      if (blur) blur.style.opacity = String(t);
+      dim.style.opacity = String(0.12 + t * 0.46);
+    };
     let frame = 0;
-    const apply = () => paint(Math.min(Math.max(0, window.scrollY) / (wide ? 520 : 420), 1));
+    let queued = false;
+    const apply = () => {
+      queued = false;
+      paint(Math.min(Math.max(0, window.scrollY) / 420, 1));
+    };
     const onScroll = () => {
-      cancelAnimationFrame(frame);
+      if (queued) return;
+      queued = true;
       frame = requestAnimationFrame(apply);
     };
     apply();
@@ -153,29 +176,54 @@ function StageBackdrop({ image, reduced }: { image: string; reduced: boolean }) 
       cancelAnimationFrame(frame);
       window.removeEventListener("scroll", onScroll);
     };
-  }, [reduced, image, wide]);
+  }, [reduced, image, wide, blurSrc]);
 
   return (
-    <>
-      {wide && image ? (
-        <div className="stage-wash" aria-hidden="true">
-          <img src={image} alt="" />
-        </div>
-      ) : null}
-      <div className="stage-bg" aria-hidden="true">
-        {image ? (
-          <>
-            <img ref={sharpRef} className="stage-bg-sharp" src={image} alt="" />
-            <img ref={blurRef} className="stage-bg-blur" src={image} alt="" />
-          </>
-        ) : (
-          <div className="stage-bg-fallback" />
-        )}
-        <div className="stage-bg-scrim" />
-        <div ref={dimRef} className="stage-bg-dim" />
-      </div>
-    </>
+    <div className="stage-bg" aria-hidden="true">
+      {image ? (
+        <>
+          <img ref={sharpRef} className="stage-bg-sharp" src={image} alt="" decoding="async" />
+          {blurSrc && !wide ? <img ref={blurRef} className="stage-bg-blur" src={blurSrc} alt="" decoding="async" /> : null}
+        </>
+      ) : (
+        <div className="stage-bg-fallback" />
+      )}
+      <div className="stage-bg-scrim" />
+      <div ref={dimRef} className="stage-bg-dim" />
+    </div>
   );
+}
+
+function precomputeBlur(src: string): Promise<string | null> {
+  return new Promise((resolve) => {
+    const img = new Image();
+    img.decoding = "async";
+    img.crossOrigin = "anonymous";
+    img.onload = () => {
+      try {
+        const canvas = document.createElement("canvas");
+        const longest = 72;
+        const scale = Math.min(1, longest / Math.max(img.naturalWidth, img.naturalHeight));
+        const width = Math.max(1, Math.round(img.naturalWidth * scale));
+        const height = Math.max(1, Math.round(img.naturalHeight * scale));
+        canvas.width = width;
+        canvas.height = height;
+        const context = canvas.getContext("2d", { alpha: false });
+        if (!context) {
+          resolve(null);
+          return;
+        }
+        const blur = 8;
+        context.filter = `blur(${blur}px)`;
+        context.drawImage(img, -blur, -blur, width + blur * 2, height + blur * 2);
+        canvas.toBlob((blob) => resolve(blob ? URL.createObjectURL(blob) : null), "image/jpeg", 0.72);
+      } catch {
+        resolve(null);
+      }
+    };
+    img.onerror = () => resolve(null);
+    img.src = src;
+  });
 }
 
 function PencilIcon() {
@@ -195,19 +243,34 @@ function PlusIcon() {
   );
 }
 
-function NowMark({ paused }: { paused?: boolean }) {
+function Equalizer() {
   return (
-    <span className={paused ? "now is-paused" : "now"} aria-hidden="true">
-      <Logo className="now-logo" />
-      {paused ? <PauseIcon /> : (
-        <span className="eq">
-          <span />
-          <span />
-          <span />
-        </span>
-      )}
+    <span className="eq" aria-hidden="true">
+      <span />
+      <span />
+      <span />
     </span>
   );
+}
+
+const EVENT_LIMIT = 2;
+const TRACK_LIMIT = 3;
+
+function ShowMore({ count, limit, open, onToggle }: { count: number; limit: number; open: boolean; onToggle: () => void }) {
+  if (count <= limit) return null;
+  return (
+    <button type="button" className="show-more" aria-expanded={open} onClick={onToggle}>
+      {open ? "Show less" : "Show more"}
+    </button>
+  );
+}
+
+function previewItems<T extends { id: string }>(items: T[], open: boolean, limit: number, activeId: string | null): T[] {
+  if (open) return items;
+  const head = items.slice(0, limit);
+  if (!activeId || head.some((item) => item.id === activeId)) return head;
+  const extra = items.find((item) => item.id === activeId);
+  return extra ? [...head, extra] : head;
 }
 
 export function ArtistStage({
@@ -363,10 +426,18 @@ function StageView({
   const [adding, setAdding] = useState(false);
   const [editingTrackId, setEditingTrackId] = useState<string | null>(null);
   const [trackError, setTrackError] = useState("");
+  const [upcomingOpen, setUpcomingOpen] = useState(false);
+  const [pastOpen, setPastOpen] = useState(false);
+  const [tracksOpen, setTracksOpen] = useState(false);
   const focus = editing ? "artist" : creating ? "create" : editingEventId ? "event" : adding ? "add" : editingTrackId ? "track" : null;
+  const { upcoming, past } = splitByTime(events);
+  const pastFocus = Boolean(editingEventId && past.some((event) => event.id === editingEventId));
 
   useEffect(() => {
     window.scrollTo(0, 0);
+    setUpcomingOpen(false);
+    setPastOpen(false);
+    setTracksOpen(false);
   }, [artist.id]);
 
   useEffect(() => {
@@ -441,11 +512,11 @@ function StageView({
               </div>
             </Expand>
           </Fold>
-          <Fold away={focus !== null && focus !== "create" && focus !== "event"}>
-            <section className="stage-section" aria-labelledby={focus === "create" || focus === "event" ? undefined : "events-heading"}>
+          <Fold away={(focus !== null && focus !== "create" && focus !== "event") || pastFocus}>
+            <section className="stage-section" aria-labelledby={focus === "create" || (focus === "event" && !pastFocus) ? undefined : "events-heading"}>
               <Fold away={Boolean(creating || editingEventId)}>
                 <div className="stage-head">
-                  <h2 id="events-heading">Events</h2>
+                  <h2 id="events-heading">Upcoming Events</h2>
                   {owner ? (
                     <button type="button" className="icon-btn" aria-label="Create event" onClick={() => replace("/events/new")}>
                       <PlusIcon />
@@ -467,11 +538,11 @@ function StageView({
                   />
                 </Expand>
               ) : null}
-              {events.length === 0 && !creating ? (
+              {upcoming.length === 0 && !creating ? (
                 <p className="stage-empty">{owner ? "When you publish a night, it shows up here." : "Nothing is scheduled yet."}</p>
               ) : (
                 <ul className="night-list">
-                  {events.map((event) => {
+                  {previewItems(upcoming, upcomingOpen, EVENT_LIMIT, editingEventId || openEventId).map((event) => {
                     const editingThis = editingEventId === event.id;
                     return (
                       <li key={event.id}>
@@ -509,6 +580,7 @@ function StageView({
                   })}
                 </ul>
               )}
+              <ShowMore count={upcoming.length} limit={EVENT_LIMIT} open={upcomingOpen} onToggle={() => setUpcomingOpen((value) => !value)} />
             </section>
           </Fold>
           <Fold away={focus !== null && focus !== "add" && focus !== "track"}>
@@ -542,11 +614,20 @@ function StageView({
                 <p className="stage-empty">{owner ? "Add a song and it will play here." : "No tracks yet."}</p>
               ) : (
                 <ol className="track-list">
-                  {tracks.map((track, index) => {
+                  {(tracksOpen || editingTrackId ? tracks : tracks.slice(0, TRACK_LIMIT)).map((track) => {
+                    const index = tracks.findIndex((item) => item.id === track.id);
                     const editingThis = editingTrackId === track.id;
+                    const resting = adding || (editingTrackId !== null && !editingThis);
+                    const current = player.currentId === track.id && player.artistId === artist.id;
                     return (
-                      <li key={track.id} id={editingThis ? undefined : `track-${track.id}`} className={player.currentId === track.id && player.artistId === artist.id ? "track is-current" : "track"}>
-                        <Fold away={adding || (editingTrackId !== null && !editingThis)}>
+                      <li key={track.id} id={resting || editingThis ? undefined : `track-${track.id}`} className={resting ? "track is-rest" : current ? "track is-current" : "track"}>
+                        {resting ? (
+                          <div className="track-rest">
+                            <span className="track-index">{index + 1}</span>
+                            <span className="track-title">{track.title}</span>
+                          </div>
+                        ) : (
+                          <>
                           <Expand open={editingThis} id={editingThis ? `track-editor-${track.id}` : undefined}>
                             <TrackEditor
                               track={track}
@@ -583,21 +664,70 @@ function StageView({
                           <Expand open={!editingThis}>
                             <TrackRow
                               track={track}
-                              current={player.currentId === track.id && player.artistId === artist.id}
-                              playing={player.currentId === track.id && player.artistId === artist.id && player.playing}
+                              playing={current && player.playing}
                               owner={owner}
                               onPlay={() => player.toggle(track, queue)}
                               onEdit={() => setEditingTrackId(track.id)}
+                            />
+                          </Expand>
+                          </>
+                        )}
+                      </li>
+                    );
+                  })}
+                </ol>
+              )}
+              {editingTrackId ? null : <ShowMore count={tracks.length} limit={TRACK_LIMIT} open={tracksOpen} onToggle={() => setTracksOpen((value) => !value)} />}
+            </section>
+          </Fold>
+          {past.length > 0 ? (
+            <Fold away={focus !== null && !(focus === "event" && pastFocus)}>
+              <section className="stage-section" aria-labelledby="past-events-heading">
+                <div className="stage-head">
+                  <h2 id="past-events-heading">Past Events</h2>
+                </div>
+                <ul className="night-list">
+                  {previewItems(past, pastOpen, EVENT_LIMIT, editingEventId || openEventId).map((event) => {
+                    const editingThis = editingEventId === event.id;
+                    return (
+                      <li key={event.id}>
+                        <Fold away={editingEventId !== null && !editingThis}>
+                          <Expand open={editingThis} id={editingThis ? "event-editor" : undefined}>
+                            <EventForm
+                              key={editingThis ? "edit" : "idle"}
+                              uid={uid}
+                              event={event}
+                              onClose={() => replace(`/event/${event.id}`)}
+                              onSaved={async (id) => {
+                                await refresh(id);
+                                replace(`/event/${id}`);
+                              }}
+                            />
+                          </Expand>
+                          <Expand open={!editingThis}>
+                            <EventCard
+                              event={event}
+                              open={openEventId === event.id}
+                              owner={owner}
+                              artistId={artist.id}
+                              replace={replace}
+                              onEdit={() => replace(`/event/${event.id}/edit`)}
+                              onDelete={async () => {
+                                await deleteEvent(event.id);
+                                await refresh();
+                                replace(`/artist/${artist.id}`);
+                              }}
                             />
                           </Expand>
                         </Fold>
                       </li>
                     );
                   })}
-                </ol>
-              )}
-            </section>
-          </Fold>
+                </ul>
+                <ShowMore count={past.length} limit={EVENT_LIMIT} open={pastOpen} onToggle={() => setPastOpen((value) => !value)} />
+              </section>
+            </Fold>
+          ) : null}
         </main>
       </div>
     </div>
@@ -709,25 +839,22 @@ function EventCard({
 
 function TrackRow({
   track,
-  current,
   playing,
   owner,
   onPlay,
   onEdit,
 }: {
   track: Track;
-  current: boolean;
   playing: boolean;
   owner: boolean;
   onPlay: () => void;
   onEdit: () => void;
 }) {
-  const state = playing ? "is-playing" : current ? "is-paused" : "";
   return (
     <div className="track-row">
       <button type="button" className="track-main" aria-pressed={playing} aria-label={playing ? `Pause ${track.title}` : `Play ${track.title}`} onClick={onPlay}>
-        <span className={`track-play ${state}`}>
-          {playing ? <NowMark /> : current ? <NowMark paused /> : <PlayIcon />}
+        <span className={playing ? "track-play is-playing" : "track-play"}>
+          {playing ? <Equalizer /> : <PlayIcon />}
         </span>
         <span className="track-copy">
           <span className="track-title">{track.title}</span>

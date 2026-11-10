@@ -2,6 +2,9 @@ const AVATAR_EDGE = 512;
 const AVATAR_TARGET = 1_500_000;
 const AVATAR_CAP = 1_900_000;
 
+/** Source-image pixels. The artist cropper passes the framed region. */
+export type ImageCrop = { x: number; y: number; width: number; height: number };
+
 export const PHOTO_MIN_SHORT_EDGE = 1200;
 export const PHOTO_QUALITY_HINT = "A sharp photo, at least 1200px on the short side.";
 
@@ -28,7 +31,7 @@ export async function assertPhotoQuality(file: File, minShortEdge = PHOTO_MIN_SH
   }
 }
 
-export async function resizeImage(file: File, options?: { maxEdge?: number; maxBytes?: number; quality?: number }): Promise<Blob> {
+export async function resizeImage(file: File, options?: { maxEdge?: number; maxBytes?: number; quality?: number; crop?: ImageCrop }): Promise<Blob> {
   const maxEdge = options?.maxEdge ?? AVATAR_EDGE;
   const target = options?.maxBytes ?? AVATAR_TARGET;
   const hardCap = options?.maxBytes ? Math.min(4_700_000, Math.round(options.maxBytes * 1.3)) : AVATAR_CAP;
@@ -36,10 +39,11 @@ export async function resizeImage(file: File, options?: { maxEdge?: number; maxB
   if (file.size > 15 * 1024 * 1024) throw new Error("That photo is too large.");
   const bitmap = await createImageBitmap(file);
   try {
-    const longEdge = Math.max(bitmap.width, bitmap.height);
+    const framed = sourceFrame(bitmap.width, bitmap.height, options?.crop);
+    const longEdge = Math.max(framed.width, framed.height);
     const scale = longEdge > maxEdge ? maxEdge / longEdge : 1;
-    const width = Math.max(1, Math.round(bitmap.width * scale));
-    const height = Math.max(1, Math.round(bitmap.height * scale));
+    const width = Math.max(1, Math.round(framed.width * scale));
+    const height = Math.max(1, Math.round(framed.height * scale));
     const canvas = document.createElement("canvas");
     canvas.width = width;
     canvas.height = height;
@@ -47,7 +51,7 @@ export async function resizeImage(file: File, options?: { maxEdge?: number; maxB
     if (!context) throw new Error("Could not use that photo.");
     context.imageSmoothingEnabled = true;
     context.imageSmoothingQuality = "high";
-    context.drawImage(bitmap, 0, 0, width, height);
+    context.drawImage(bitmap, framed.x, framed.y, framed.width, framed.height, 0, 0, width, height);
     let quality = startQuality;
     const step = startQuality >= 0.89 ? 0.03 : 0.12;
     let blob: Blob | null = null;
@@ -65,4 +69,16 @@ export async function resizeImage(file: File, options?: { maxEdge?: number; maxB
   } finally {
     bitmap.close();
   }
+}
+
+function sourceFrame(width: number, height: number, crop?: ImageCrop): ImageCrop {
+  if (!crop || !(crop.width > 1) || !(crop.height > 1)) return { x: 0, y: 0, width, height };
+  const x = Math.max(0, Math.min(width - 1, crop.x));
+  const y = Math.max(0, Math.min(height - 1, crop.y));
+  return {
+    x,
+    y,
+    width: Math.max(1, Math.min(width - x, crop.width)),
+    height: Math.max(1, Math.min(height - y, crop.height)),
+  };
 }

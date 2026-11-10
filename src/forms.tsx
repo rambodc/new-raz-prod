@@ -1,8 +1,9 @@
 import { useEffect, useRef, useState, type FormEvent } from "react";
 import { readAudioDuration } from "./audio";
+import { CropPhoto } from "./crop";
 import { publishEvent, publishTrack, saveArtist, saveEvent, type Artist, type EventItem } from "./data";
 import { cleanBlock, cleanLine, cleanTicketUrl, combineLocal, dateInputValue, formatClock, formatDay, formatDuration, timeInputValue, validBlock, validLine, validTicketUrl } from "./format";
-import { PHOTO_QUALITY_HINT, assertPhotoQuality } from "./resizeImage";
+import { PHOTO_QUALITY_HINT, assertPhotoQuality, type ImageCrop } from "./resizeImage";
 import { explain } from "./services";
 import { Field, TextArea } from "./ui";
 
@@ -44,13 +45,8 @@ export function ArtistForm({ artist, onClose, onSaved }: { artist: Artist; onClo
   const [preview, setPreview] = useState(artist.imageURL);
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
-
-  useEffect(() => {
-    if (!file) return;
-    const url = URL.createObjectURL(file);
-    setPreview(url);
-    return () => URL.revokeObjectURL(url);
-  }, [file]);
+  const cropRef = useRef<ImageCrop | null>(null);
+  const photoRef = useRef<HTMLInputElement>(null);
 
   async function onSubmit(submit: FormEvent) {
     submit.preventDefault();
@@ -67,7 +63,12 @@ export function ArtistForm({ artist, onClose, onSaved }: { artist: Artist; onClo
     setBusy(true);
     setError("");
     try {
-      await saveArtist(artist.id, { name: nextName, bio: nextBio, imageURL: artist.imageURL }, file);
+      if (file && !cropRef.current) {
+        setError("Frame the photo before saving.");
+        setBusy(false);
+        return;
+      }
+      await saveArtist(artist.id, { name: nextName, bio: nextBio, imageURL: artist.imageURL }, file, cropRef.current);
       await onSaved();
     } catch (caught) {
       setError(explain(caught));
@@ -83,25 +84,48 @@ export function ArtistForm({ artist, onClose, onSaved }: { artist: Artist; onClo
           Close
         </button>
       </div>
-      <PhotoField
-        preview={preview}
-        empty="Add a photo"
-        busy={busy}
-        hint={PHOTO_QUALITY_HINT}
-        onFile={(next) => {
-          void acceptPhoto(next, 1200)
-            .then((picked) => {
-              setError("");
-              setFile(picked);
-              if (!picked) setPreview(artist.imageURL);
-            })
-            .catch((caught: unknown) => {
-              setFile(null);
-              setPreview(artist.imageURL);
-              setError(explain(caught));
-            });
-        }}
-      />
+      {file ? (
+        <CropPhoto
+          file={file}
+          busy={busy}
+          onCrop={(crop) => {
+            cropRef.current = crop;
+          }}
+        />
+      ) : (
+        <div className="stage-photo-field">
+          {preview ? <img src={preview} alt="" /> : <span className="stage-photo-empty">Add a photo</span>}
+        </div>
+      )}
+      <div className="stage-file-row">
+        <button type="button" className="stage-quiet" disabled={busy} onClick={() => photoRef.current?.click()}>
+          {file || preview ? "Change photo" : "Add photo"}
+        </button>
+        {!file ? <p className="photo-hint">{PHOTO_QUALITY_HINT}</p> : null}
+        <input
+          ref={photoRef}
+          className="file"
+          type="file"
+          accept="image/jpeg,image/png,image/webp,image/heic,image/heif,image/*"
+          onChange={(change) => {
+            const next = change.target.files?.[0] ?? null;
+            change.target.value = "";
+            void acceptPhoto(next, 1200)
+              .then((picked) => {
+                setError("");
+                cropRef.current = null;
+                setFile(picked);
+                if (!picked) setPreview(artist.imageURL);
+              })
+              .catch((caught: unknown) => {
+                setFile(null);
+                cropRef.current = null;
+                setPreview(artist.imageURL);
+                setError(explain(caught));
+              });
+          }}
+        />
+      </div>
       <div className="stage-fields">
         <Field label="Name" value={name} maxLength={80} disabled={busy} onChange={(event) => setName(event.target.value)} />
         <TextArea label="Bio" value={bio} maxLength={600} rows={4} disabled={busy} onChange={(event) => setBio(event.target.value)} />

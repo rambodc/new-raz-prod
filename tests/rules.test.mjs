@@ -128,10 +128,13 @@ test("login codes, rate limits and other unknown paths are server-only", async (
   await assertFails(getDoc(doc(db, "artists/a1/fans/ada")));
   await assertFails(getDoc(doc(db, "loginCodes/abc")));
   await assertFails(setDoc(doc(db, "loginCodes/abc"), { codeHash: "nope" }));
+  await assertFails(getDoc(doc(db, "emailChanges/ada")));
+  await assertFails(setDoc(doc(db, "emailChanges/ada"), { codeHash: "nope" }));
   await assertFails(getDoc(doc(db, "authRateLimits/email_abc")));
   await assertFails(setDoc(doc(db, "authRateLimits/email_abc"), { count: 1 }));
   const anon = testEnv.unauthenticatedContext().firestore();
   await assertFails(getDoc(doc(anon, "loginCodes/abc")));
+  await assertFails(getDoc(doc(anon, "emailChanges/ada")));
   await assertFails(getDoc(doc(anon, "authRateLimits/ip_abc")));
 });
 

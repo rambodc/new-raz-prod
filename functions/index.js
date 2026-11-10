@@ -5,6 +5,7 @@ import { getStorage } from "firebase-admin/storage";
 import { HttpsError, onCall, onRequest } from "firebase-functions/v2/https";
 import { defineSecret } from "firebase-functions/params";
 import { acceptLoginCode, emulatorSinkEnabled, issueLoginCode, LoginError, sendWithResend } from "./lib/loginCode.js";
+import { confirmEmailChange as applyEmailChange, EmailChangeError, requestEmailChange as issueEmailChange } from "./lib/emailChange.js";
 import { applyUserRole, RoleError } from "./lib/roles.js";
 import { CheckInError, MAX_IMAGE_BYTES, parseInput, performCheckIn, sniffImageType, validArtistId } from "./lib/checkin.js";
 import { imageBuckets, IMAGE_MODEL, IMAGE_ROUTE_BUDGET_SEC, handleImageRequest } from "./lib/images.js";
@@ -17,7 +18,7 @@ const options = { region: "us-central1", maxInstances: 10 };
 initializeApp({ storageBucket: BUCKET });
 
 /** Bump when the deployed functions change, so a deploy can be confirmed end to end. */
-export const FUNCTIONS_VERSION = "2026.11.09-roles";
+export const FUNCTIONS_VERSION = "2026.11.10-email";
 
 const xaiKey = defineSecret("XAI_API_KEY");
 const resendKey = defineSecret("RESEND_API_KEY");
@@ -136,10 +137,13 @@ function clientIp(request) {
   return typeof ip === "string" && ip.length > 0 ? ip.slice(0, 64) : "unknown";
 }
 
-async function deliverLoginEmail(payload) {
+async function deliverEmail(payload) {
   if (emulatorSinkEnabled()) {
-    const { writeFile } = await import("node:fs/promises");
-    await writeFile("/tmp/razzberry-last-code.json", JSON.stringify({ to: payload.to, code: payload.code }));
+    const { appendFile, writeFile } = await import("node:fs/promises");
+    await appendFile("/tmp/razzberry-emails.jsonl", `${JSON.stringify({ to: payload.to, kind: payload.kind || "login", code: payload.code || "" })}\n`);
+    if (payload.code && (!payload.kind || payload.kind === "login")) {
+      await writeFile("/tmp/razzberry-last-code.json", JSON.stringify({ to: payload.to, code: payload.code }));
+    }
     return { error: null };
   }
   return sendWithResend(resendKey.value(), payload);
@@ -173,7 +177,7 @@ export const sendLoginCode = onCall({ ...options, timeoutSeconds: 30, secrets: [
       email: request.data?.email,
       ip: clientIp(request),
       now: Date.now(),
-      sendEmail: deliverLoginEmail,
+      sendEmail: deliverEmail,
     });
   } catch (error) {
     throw toLoginHttpsError(error);
@@ -204,6 +208,63 @@ export const setUserRole = onCall({ ...options, timeoutSeconds: 30, invoker: "pu
     });
   } catch (error) {
     throw toRoleHttpsError(error);
+  }
+});
+
+function toEmailHttpsError(error) {
+  if (!(error instanceof EmailChangeError)) {
+    console.error("email change failed", error?.code || error?.name || "error");
+    return new HttpsError("internal", "Something went wrong. Try again.");
+  }
+  const messages = {
+    unauthenticated: ["unauthenticated", "Sign in first."],
+    "bad-email": ["invalid-argument", "Enter a valid email address."],
+    "bad-code": ["invalid-argument", "Enter the 6-digit code."],
+    "same-email": ["failed-precondition", "That's already your email."],
+    "email-taken": ["already-exists", "That email is already on another account."],
+    "too-soon": ["resource-exhausted", "Please wait a minute before requesting another code."],
+    "rate-limited": ["resource-exhausted", "Too many codes were requested. Try again later."],
+    "wrong-code": ["failed-precondition", "That code is incorrect."],
+    expired: ["failed-precondition", "That code has expired. Send a new one."],
+    "too-many-attempts": ["failed-precondition", "Too many tries. Send a new code."],
+    "send-failed": ["internal", "Could not send the email. Try again."],
+  };
+  const [code, message] = messages[error.reason] ?? ["internal", "Something went wrong. Try again."];
+  return new HttpsError(code, message, { reason: error.reason });
+}
+
+/** Emails a 6-digit code to the new address. The signed-in user is unchanged until the code is confirmed. */
+export const requestEmailChange = onCall({ ...options, timeoutSeconds: 30, secrets: [resendKey], invoker: "public" }, async (request) => {
+  if (!request.auth) throw new HttpsError("unauthenticated", "Sign in first.");
+  try {
+    return await issueEmailChange({
+      db: getFirestore(),
+      auth: getAuth(),
+      uid: request.auth.uid,
+      email: request.data?.email,
+      now: Date.now(),
+      sendEmail: (payload) => deliverEmail({ ...payload, kind: payload.kind || "email-change" }),
+    });
+  } catch (error) {
+    throw toEmailHttpsError(error);
+  }
+});
+
+/** Checks the code, updates this Auth user and users/{uid}.email, then emails the previous address. */
+export const confirmEmailChange = onCall({ ...options, timeoutSeconds: 30, secrets: [resendKey], invoker: "public" }, async (request) => {
+  if (!request.auth) throw new HttpsError("unauthenticated", "Sign in first.");
+  try {
+    return await applyEmailChange({
+      db: getFirestore(),
+      auth: getAuth(),
+      uid: request.auth.uid,
+      code: request.data?.code,
+      now: Date.now(),
+      timestampOf: (ms) => Timestamp.fromMillis(ms),
+      sendEmail: (payload) => deliverEmail(payload),
+    });
+  } catch (error) {
+    throw toEmailHttpsError(error);
   }
 });
 
