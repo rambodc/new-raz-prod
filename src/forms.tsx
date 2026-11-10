@@ -2,29 +2,39 @@ import { useEffect, useRef, useState, type FormEvent } from "react";
 import { readAudioDuration } from "./audio";
 import { publishEvent, publishTrack, saveArtist, saveEvent, type Artist, type EventItem } from "./data";
 import { cleanBlock, cleanLine, cleanTicketUrl, combineLocal, dateInputValue, formatClock, formatDay, formatDuration, timeInputValue, validBlock, validLine, validTicketUrl } from "./format";
+import { PHOTO_QUALITY_HINT, assertPhotoQuality } from "./resizeImage";
 import { explain } from "./services";
 import { Field, TextArea } from "./ui";
 
-function PhotoField({ preview, empty, busy, onFile }: { preview: string; empty: string; busy: boolean; onFile: (file: File | null) => void }) {
+function PhotoField({ preview, empty, busy, hint, onFile }: { preview: string; empty: string; busy: boolean; hint?: string; onFile: (file: File | null) => void }) {
   const inputRef = useRef<HTMLInputElement>(null);
   return (
-    <div className="stage-photo-field">
-      {preview ? <img src={preview} alt="" /> : <span className="stage-photo-empty">{empty}</span>}
-      <button type="button" className="change-photo" onClick={() => inputRef.current?.click()} disabled={busy}>
-        {preview ? "Change photo" : "Add photo"}
-      </button>
-      <input
-        ref={inputRef}
-        className="file"
-        type="file"
-        accept="image/jpeg,image/png,image/webp,image/heic,image/heif,image/*"
-        onChange={(change) => {
-          onFile(change.target.files?.[0] ?? null);
-          change.target.value = "";
-        }}
-      />
+    <div>
+      <div className="stage-photo-field">
+        {preview ? <img src={preview} alt="" /> : <span className="stage-photo-empty">{empty}</span>}
+        <button type="button" className="change-photo" onClick={() => inputRef.current?.click()} disabled={busy}>
+          {preview ? "Change photo" : "Add photo"}
+        </button>
+        <input
+          ref={inputRef}
+          className="file"
+          type="file"
+          accept="image/jpeg,image/png,image/webp,image/heic,image/heif,image/*"
+          onChange={(change) => {
+            onFile(change.target.files?.[0] ?? null);
+            change.target.value = "";
+          }}
+        />
+      </div>
+      {hint ? <p className="photo-hint">{hint}</p> : null}
     </div>
   );
+}
+
+async function acceptPhoto(file: File | null, minShortEdge: number): Promise<File | null> {
+  if (!file) return null;
+  await assertPhotoQuality(file, minShortEdge);
+  return file;
 }
 
 export function ArtistForm({ artist, onClose, onSaved }: { artist: Artist; onClose: () => void; onSaved: () => Promise<void> }) {
@@ -73,7 +83,25 @@ export function ArtistForm({ artist, onClose, onSaved }: { artist: Artist; onClo
           Close
         </button>
       </div>
-      <PhotoField preview={preview} empty="Add a photo" busy={busy} onFile={setFile} />
+      <PhotoField
+        preview={preview}
+        empty="Add a photo"
+        busy={busy}
+        hint={PHOTO_QUALITY_HINT}
+        onFile={(next) => {
+          void acceptPhoto(next, 1200)
+            .then((picked) => {
+              setError("");
+              setFile(picked);
+              if (!picked) setPreview(artist.imageURL);
+            })
+            .catch((caught: unknown) => {
+              setFile(null);
+              setPreview(artist.imageURL);
+              setError(explain(caught));
+            });
+        }}
+      />
       <div className="stage-fields">
         <Field label="Name" value={name} maxLength={80} disabled={busy} onChange={(event) => setName(event.target.value)} />
         <TextArea label="Bio" value={bio} maxLength={600} rows={4} disabled={busy} onChange={(event) => setBio(event.target.value)} />
@@ -176,7 +204,25 @@ export function EventForm({
           Close
         </button>
       </div>
-      <PhotoField preview={preview} empty="Add a photo" busy={busy} onFile={setFile} />
+      <PhotoField
+        preview={preview}
+        empty="Add a photo"
+        busy={busy}
+        hint={PHOTO_QUALITY_HINT}
+        onFile={(next) => {
+          void acceptPhoto(next, 1200)
+            .then((picked) => {
+              setError("");
+              setFile(picked);
+              if (!picked) setPreview(event?.imageURL ?? "");
+            })
+            .catch((caught: unknown) => {
+              setFile(null);
+              setPreview(event?.imageURL ?? "");
+              setError(explain(caught));
+            });
+        }}
+      />
       <div className="stage-fields">
         <Field label="Title" value={title} maxLength={120} disabled={busy} autoComplete="off" onChange={(change) => setTitle(change.target.value)} />
         <div className="split">
@@ -325,10 +371,20 @@ export function TrackForm({ artistId, order, onClose, onSaved }: { artistId: str
             type="file"
             accept="image/jpeg,image/png,image/webp,image/heic,image/heif,image/*"
             onChange={(change) => {
-              setCover(change.target.files?.[0] ?? null);
+              const next = change.target.files?.[0] ?? null;
               change.target.value = "";
+              void acceptPhoto(next, 800)
+                .then((picked) => {
+                  setError("");
+                  setCover(picked);
+                })
+                .catch((caught: unknown) => {
+                  setCover(null);
+                  setError(explain(caught));
+                });
             }}
           />
+          <p className="photo-hint">Optional. A sharp cover, at least 800px on the short side.</p>
         </div>
       </div>
       {error ? <p className="form-error" role="alert">{error}</p> : null}

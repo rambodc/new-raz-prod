@@ -51,7 +51,7 @@ export type ArtistPageData = {
   tracks: Track[];
 };
 
-const HERO = { maxEdge: 1600, maxBytes: 4_200_000 };
+const HERO = { maxEdge: 2000, maxBytes: 3_600_000, quality: 0.9 };
 
 function asString(value: unknown): string {
   return typeof value === "string" ? value : "";
@@ -135,9 +135,20 @@ export async function listArtistEvents(artistId: string): Promise<EventItem[]> {
   return eventsFrom(snap.docs);
 }
 
-export async function loadHome(uid: string, role: Role): Promise<{ artist: Artist | null; events: EventItem[] }> {
-  const [artist, events] = await Promise.all([role === "artist" ? getArtist(uid) : Promise.resolve(null), listUpcomingEvents()]);
-  return { artist, events };
+export async function listArtists(): Promise<Artist[]> {
+  const { db } = await client();
+  const snap = await getDocs(query(collection(db, "artists"), limit(80)));
+  return snap.docs
+    .flatMap((item) => {
+      const artist = readArtist(item.id, item.data());
+      return artist ? [artist] : [];
+    })
+    .sort((a, b) => a.name.localeCompare(b.name) || a.id.localeCompare(b.id));
+}
+
+export async function loadHome(uid: string, role: Role): Promise<{ artist: Artist | null; artists: Artist[] }> {
+  const [artist, artists] = await Promise.all([role === "artist" ? getArtist(uid) : Promise.resolve(null), listArtists()]);
+  return { artist, artists };
 }
 
 export async function listTracks(artistId: string): Promise<Track[]> {

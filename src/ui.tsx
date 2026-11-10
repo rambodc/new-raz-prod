@@ -6,10 +6,9 @@ import { Logo } from "./logo";
 export function Boot() {
   return (
     <div className="boot" role="status" aria-label="Loading">
-      <div className="boot-stage">
-        <div className="boot-glow" />
-        <div className="boot-ring" />
+      <div className="boot-mark">
         <Logo className="boot-logo" />
+        <p className="boot-word">Razzberry</p>
       </div>
     </div>
   );
@@ -29,7 +28,7 @@ export function Scene({ variant, children }: { variant: "auth" | "home"; childre
   );
 }
 
-export function BrandLockup({ back }: { back?: () => void }) {
+export function BrandLockup({ back, onHome }: { back?: () => void; onHome?: () => void }) {
   return (
     <div className="brand-lockup">
       {back ? (
@@ -37,16 +36,18 @@ export function BrandLockup({ back }: { back?: () => void }) {
           <BackIcon />
         </button>
       ) : null}
-      <Logo className="brand-mark" />
-      <p className="wordmark">Razzberry</p>
+      <button type="button" className="brand-home" aria-label="Home" onClick={onHome}>
+        <Logo className="brand-mark" />
+        <span className="wordmark">Razzberry</span>
+      </button>
     </div>
   );
 }
 
-export function TopBar({ back, menu, avatar }: { back?: () => void; menu?: boolean; avatar?: ReactNode }) {
+export function TopBar({ back, menu, avatar, onHome }: { back?: () => void; menu?: boolean; avatar?: ReactNode; onHome?: () => void }) {
   return (
     <header className="topbar">
-      <BrandLockup back={back} />
+      <BrandLockup back={back} onHome={onHome} />
       {avatar}
       {menu ? <MenuMark /> : null}
     </header>
@@ -142,11 +143,13 @@ export function openLink(event: MouseEvent<HTMLAnchorElement>, go: (path: string
 
 export function Page({
   back,
+  onHome,
   children,
   tone = "plain",
   narrow = false,
 }: {
   back?: () => void;
+  onHome?: () => void;
   children: ReactNode;
   tone?: "plain" | "form" | "event";
   narrow?: boolean;
@@ -154,7 +157,7 @@ export function Page({
   return (
     <div className={`sheet is-${tone}`}>
       <div className={narrow ? "sheet-column is-narrow" : "sheet-column"}>
-        <TopBar back={back} />
+        <TopBar back={back} onHome={onHome} />
         {children}
       </div>
     </div>
