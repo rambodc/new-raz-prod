@@ -10,7 +10,7 @@ service cloud.firestore {
     //   ticketUrl is empty or an http(s) link. Public read. Only the owning artist, with role artist, can write.
     // artists/{artistId}/tracks/{trackId}: title, duration, order, audioURL, coverURL, createdAt, updatedAt.
     //   Public read. Only that artist can write. Audio lives in Storage at artists/{artistId}/tracks/.
-    // loginCodes and authRateLimits are written only by Cloud Functions (the Admin SDK).
+    // loginCodes, emailChanges and authRateLimits are written only by Cloud Functions (the Admin SDK).
     // A photo URL is empty or a download URL for this user's own avatar.
 
     function isOwner(userId) {
@@ -77,6 +77,10 @@ service cloud.firestore {
     }
 
     match /loginCodes/{id} {
+      allow read, write: if false;
+    }
+
+    match /emailChanges/{id} {
       allow read, write: if false;
     }
 

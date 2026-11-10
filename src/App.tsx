@@ -4,7 +4,7 @@ import { HomeScreen } from "./home";
 import { MiniPlayer, Playback } from "./player";
 import { cleanEmail, cleanName, validEmail, validName, type Profile } from "./profile";
 import { currentPath, parseRoute } from "./routes";
-import { explain, requestCode, saveProfile, signOutUser, uploadAvatar, verifyCode, watchSession, type Session } from "./services";
+import { confirmEmailChange, explain, requestCode, requestEmailChange, saveProfile, signOutUser, uploadAvatar, verifyCode, watchSession, type Session } from "./services";
 import { Avatar, BackIcon, Boot, BrandLockup, CameraIcon, Field, Scene, TopBar, keepVisible } from "./ui";
 
 const PENDING_KEY = "razzberry.pendingEmail";
@@ -185,6 +185,13 @@ export default function App() {
           setSession({ ...signedIn, profile: next });
         }}
         onPhoto={() => setPhotoVersion(Date.now())}
+        onEmail={(next) => {
+          setSession({
+            ...signedIn,
+            email: next,
+            profile: profile ? { ...profile, email: next } : profile,
+          });
+        }}
         onSignedOut={() => {
           setCodeStep(false);
           setPending(null);
@@ -480,6 +487,119 @@ function NameScreen({ uid, onSaved, onHome }: { uid: string; onSaved: (profile: 
   );
 }
 
+function EmailChange({ email, disabled, onChanged }: { email: string; disabled: boolean; onChanged: (email: string) => void }) {
+  const [open, setOpen] = useState(false);
+  const [next, setNext] = useState("");
+  const [code, setCode] = useState("");
+  const [sentTo, setSentTo] = useState("");
+  const [sentAt, setSentAt] = useState(0);
+  const [clock, setClock] = useState(Date.now());
+  const [error, setError] = useState("");
+  const [note, setNote] = useState("");
+  const [busy, setBusy] = useState(false);
+  const remain = sentTo ? Math.max(0, 60 - Math.floor((clock - sentAt) / 1000)) : 0;
+
+  useEffect(() => {
+    if (!sentTo) return;
+    const id = window.setInterval(() => setClock(Date.now()), 500);
+    return () => window.clearInterval(id);
+  }, [sentTo]);
+
+  async function send(address: string) {
+    const cleaned = cleanEmail(address);
+    if (!validEmail(cleaned)) {
+      setError("Enter a valid email address.");
+      return;
+    }
+    if (cleaned === cleanEmail(email)) {
+      setError("That's already your email.");
+      return;
+    }
+    setBusy(true);
+    setError("");
+    setNote("");
+    try {
+      await requestEmailChange(cleaned);
+      setSentTo(cleaned);
+      setSentAt(Date.now());
+      setClock(Date.now());
+      setCode("");
+    } catch (caught) {
+      setError(explain(caught));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function confirm(event: FormEvent) {
+    event.preventDefault();
+    if (!/^\d{6}$/.test(code)) {
+      setError("Enter the 6-digit code.");
+      return;
+    }
+    setBusy(true);
+    setError("");
+    try {
+      const updated = await confirmEmailChange(code);
+      onChanged(updated);
+      setOpen(false);
+      setSentTo("");
+      setNext("");
+      setCode("");
+      setNote("Email updated.");
+    } catch (caught) {
+      setError(explain(caught));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  if (!open) {
+    return (
+      <div className="email-change">
+        {note ? <p className="photo-hint">{note}</p> : null}
+        <button type="button" className="text-button" disabled={disabled} onClick={() => { setOpen(true); setError(""); setNote(""); }}>
+          Change email
+        </button>
+      </div>
+    );
+  }
+
+  if (sentTo) {
+    return (
+      <form className="email-change" onSubmit={(event) => void confirm(event)}>
+        <p className="photo-hint">We sent a 6-digit code to {sentTo}.</p>
+        <Field label="Code" inputMode="numeric" autoComplete="one-time-code" maxLength={6} value={code} disabled={busy} onChange={(event) => setCode(event.target.value.replace(/\D/g, "").slice(0, 6))} />
+        {error ? <p className="form-error" role="alert">{error}</p> : null}
+        <button className="pill" type="submit" disabled={busy}>{busy ? "Checking…" : "Confirm"}</button>
+        <button type="button" className="text-button" disabled={busy || remain > 0} onClick={() => void send(sentTo)}>
+          {remain > 0 ? `Resend code in ${remain}s` : "Resend code"}
+        </button>
+        <button type="button" className="text-button" disabled={busy} onClick={() => { setSentTo(""); setCode(""); setError(""); }}>
+          Use a different email
+        </button>
+      </form>
+    );
+  }
+
+  return (
+    <form
+      className="email-change"
+      onSubmit={(event) => {
+        event.preventDefault();
+        void send(next);
+      }}
+    >
+      <Field label="New email" type="email" autoComplete="email" inputMode="email" autoCapitalize="none" spellCheck={false} value={next} disabled={busy} onChange={(event) => setNext(event.target.value)} />
+      {error ? <p className="form-error" role="alert">{error}</p> : null}
+      <button className="pill" type="submit" disabled={busy || disabled}>{busy ? "Sending…" : "Send code"}</button>
+      <button type="button" className="text-button" disabled={busy} onClick={() => { setOpen(false); setError(""); }}>
+        Cancel
+      </button>
+    </form>
+  );
+}
+
 function SettingsScreen({
   uid,
   email,
@@ -489,6 +609,7 @@ function SettingsScreen({
   onHome,
   onSaved,
   onPhoto,
+  onEmail,
   onSignedOut,
 }: {
   uid: string;
@@ -499,6 +620,7 @@ function SettingsScreen({
   onHome: () => void;
   onSaved: (profile: Profile) => void;
   onPhoto: () => void;
+  onEmail: (email: string) => void;
   onSignedOut: () => void;
 }) {
   const [firstName, setFirstName] = useState(profile?.firstName ?? "");
@@ -607,8 +729,11 @@ function SettingsScreen({
           {error ? <p className="form-error" role="alert">{error}</p> : null}
         </form>
         <section className="panel email-panel">
-          <span>Email</span>
-          <span>{email}</span>
+          <div className="email-line">
+            <span>Email</span>
+            <span>{email}</span>
+          </div>
+          <EmailChange email={email} disabled={busy || photoBusy} onChanged={onEmail} />
         </section>
         <button type="button" className="sign-out" onClick={() => void signOut()} disabled={busy}>
           Sign out

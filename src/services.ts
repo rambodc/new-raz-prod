@@ -22,6 +22,8 @@ const REASONS: Record<string, string> = {
   "bad-code": "Enter the 6-digit code.",
   "send-failed": "Could not send the email. Try again.",
   "token-failed": "Could not finish signing you in.",
+  "same-email": "That's already your email.",
+  "email-taken": "That email is already on another account.",
 };
 
 export function explain(error: unknown): string {
@@ -105,6 +107,27 @@ export async function saveProfile(uid: string, input: { firstName: string; lastN
     photoURL: input.photoURL,
     updatedAt: serverTimestamp(),
   });
+}
+
+export async function requestEmailChange(email: string): Promise<void> {
+  const { functions } = await client();
+  const send = httpsCallable(functions, "requestEmailChange");
+  await send({ email });
+}
+
+export async function confirmEmailChange(code: string): Promise<string> {
+  const { auth, functions } = await client();
+  const confirm = httpsCallable<{ code: string }, { email: string }>(functions, "confirmEmailChange");
+  const result = await confirm({ code });
+  const email = result.data?.email;
+  if (typeof email !== "string" || email.length === 0) throw new Error("Could not update the email.");
+  try {
+    await auth.currentUser?.reload();
+    await auth.currentUser?.getIdToken(true);
+  } catch {
+    // The address is already saved. A failed token refresh must not look like the change failed.
+  }
+  return email;
 }
 
 export async function signOutUser(): Promise<void> {
