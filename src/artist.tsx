@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, type FormEvent, type ReactNode, type TransitionEvent } from "react";
 import { ownsArtist } from "./access";
-import { deleteEvent, deleteTrack, loadArtistPage, renameTrack, resolveRoutePage, saveTrackOrder, type Artist, type EventItem, type ResolvedPage, type Track } from "./data";
+import { ARTIST_EVENT_LIMIT, canonicalFor, deleteEvent, deleteTrack, focusFromPage, focusReady, loadArtistPage, renameTrack, resolveRoutePage, saveTrackOrder, type Artist, type EventItem, type ResolvedPage, type Track } from "./data";
 import { ArtistForm, EventForm, TrackForm } from "./forms";
 import { splitByTime } from "./events";
 import { cleanLine, cleanTicketUrl, formatDuration, formatWhen, validLine, validTicketUrl } from "./format";
@@ -12,7 +12,7 @@ import { currentPath } from "./routes";
 import { explain } from "./services";
 import { ShareButton } from "./share";
 import { artistPath, eventPath, trackPath } from "./slug";
-import { Boot, BrandLockup, Chevron, Cover, Empty, Page } from "./ui";
+import { Boot, BrandLockup, Chevron, Cover, Empty, Page, SignInButton } from "./ui";
 
 function Expand({ open, id, children }: { open: boolean; id?: string; children: ReactNode }) {
   return (
@@ -38,7 +38,7 @@ function clip(text: string, max: number): string {
   return `${chars.slice(0, max).join("").trimEnd()}…`;
 }
 
-function Bio({ text, onLocked }: { text: string; onLocked?: () => void }) {
+function Bio({ text }: { text: string }) {
   const trimmed = text.trim();
   const reduced = useReducedMotion();
   const ref = useRef<HTMLDivElement>(null);
@@ -67,10 +67,6 @@ function Bio({ text, onLocked }: { text: string; onLocked?: () => void }) {
   if (!trimmed) return null;
 
   function toggle() {
-    if (onLocked) {
-      onLocked();
-      return;
-    }
     const el = ref.current;
     fromHeight.current = el ? el.getBoundingClientRect().height : null;
     setOpen((value) => !value);
@@ -279,8 +275,7 @@ export function ArtistStage({
   replace,
   back,
   onHome,
-  guest = false,
-  onNeedAccount,
+  onSignIn,
 }: {
   route: Route;
   uid: string;
@@ -289,8 +284,7 @@ export function ArtistStage({
   replace: (path: string) => void;
   back: () => void;
   onHome: () => void;
-  guest?: boolean;
-  onNeedAccount?: () => void;
+  onSignIn?: () => void;
 }) {
   const key = routeKey(route);
   const routeRef = useRef(route);
@@ -304,12 +298,36 @@ export function ArtistStage({
   useEffect(() => {
     let cancelled = false;
     const active = routeRef.current;
-    const current = viewRef.current?.page.artist;
-    const same =
-      (active.name === "share" && current?.slug === active.artistSlug) ||
-      ((active.name === "artist" || active.name === "artist-edit") && current?.id === active.id);
-    if (!same) setView(null);
-    setStatus("loading");
+    const current = viewRef.current;
+    const focus = current ? focusFromPage(active, current.page) : null;
+    if (focus && current && focusReady(focus)) {
+      const canonical = canonicalFor(active, current.page);
+      setStatus("ready");
+      setView((existing) => {
+        if (!existing) return existing;
+        if (existing.openEventId === focus.openEventId && existing.highlightTrackId === focus.highlightTrackId && existing.canonicalPath === canonical) return existing;
+        return { ...existing, openEventId: focus.openEventId, highlightTrackId: focus.highlightTrackId, canonicalPath: canonical };
+      });
+      return () => {
+        cancelled = true;
+      };
+    }
+    // A slug that is not on this page is not a public event we already have. Do not
+    // block the open animation, and do not read a private share lookup, when the list is complete.
+    if (focus?.sameArtist && current && focus.pendingEvent && !focus.pendingTrack && current.page.events.length < ARTIST_EVENT_LIMIT) {
+      setStatus("ready");
+      setView((existing) => {
+        if (!existing || (existing.openEventId === null && existing.canonicalPath === null)) return existing;
+        return { ...existing, openEventId: null, canonicalPath: null };
+      });
+      return () => {
+        cancelled = true;
+      };
+    }
+    if (!focus?.sameArtist) {
+      setView(null);
+      setStatus("loading");
+    }
     resolveRoutePage(active, uid)
       .then((next) => {
         if (cancelled) return;
@@ -340,9 +358,10 @@ export function ArtistStage({
   }
 
   const creatable = route.name === "event-edit" && route.id === null;
+  const signIn = onSignIn ? <SignInButton onClick={onSignIn} /> : undefined;
   if (status === "error" && !view?.page.artist) {
     return (
-      <Page back={back} onHome={onHome}>
+      <Page back={back} onHome={onHome} avatar={signIn}>
         <Empty title="Couldn't load this page" body="Check your connection and try again." />
         <button className="primary" type="button" onClick={() => setNonce((value) => value + 1)}>
           Try again
@@ -352,7 +371,7 @@ export function ArtistStage({
   }
   if (status === "ready" && view && !view.page.artist) {
     return (
-      <Page back={back} onHome={onHome}>
+      <Page back={back} onHome={onHome} avatar={signIn}>
         <Empty title={creatable ? "Artists publish events" : "This page isn't here"} body={creatable ? "This account can't create an event." : "It may have been removed."} />
         <button className="primary" type="button" onClick={() => go("/")}>
           Back home
@@ -363,6 +382,9 @@ export function ArtistStage({
   if (!view?.page.artist) return <Boot />;
 
   const artist = view.page.artist;
+  const focusNow = focusFromPage(route, view.page);
+  const openEventId = focusNow.sameArtist ? (focusNow.pendingEvent ? null : focusNow.openEventId) : view.openEventId;
+  const highlightTrackId = focusNow.sameArtist ? (focusNow.pendingTrack ? view.highlightTrackId : focusNow.highlightTrackId) : view.highlightTrackId;
   const owner = ownsArtist(uid, profile.role, artist);
   const editing = route.name === "artist-edit" && owner;
   const creating = creatable && owner;
@@ -375,16 +397,15 @@ export function ArtistStage({
       tracks={view.page.tracks}
       uid={uid}
       owner={owner}
-      guest={guest}
       editing={editing}
       creating={creating}
       editingEventId={editingEventId}
-      openEventId={view.openEventId}
-      highlightTrackId={view.highlightTrackId}
+      openEventId={openEventId}
+      highlightTrackId={highlightTrackId}
       replace={replace}
       back={back}
       onHome={onHome}
-      onNeedAccount={onNeedAccount}
+      onSignIn={onSignIn}
       reload={reload}
       setTracks={(tracks) => setView((current) => (current ? { ...current, page: { ...current.page, tracks } } : current))}
     />
@@ -397,7 +418,6 @@ function StageView({
   tracks,
   uid,
   owner,
-  guest,
   editing,
   creating,
   editingEventId,
@@ -406,7 +426,7 @@ function StageView({
   replace,
   back,
   onHome,
-  onNeedAccount,
+  onSignIn,
   reload,
   setTracks,
 }: {
@@ -415,7 +435,6 @@ function StageView({
   tracks: Track[];
   uid: string;
   owner: boolean;
-  guest: boolean;
   editing: boolean;
   creating: boolean;
   editingEventId: string | null;
@@ -424,7 +443,7 @@ function StageView({
   replace: (path: string) => void;
   back: () => void;
   onHome: () => void;
-  onNeedAccount?: () => void;
+  onSignIn?: () => void;
   reload: (ensureEventId?: string) => Promise<void>;
   setTracks: (tracks: Track[]) => void;
 }) {
@@ -506,6 +525,7 @@ function StageView({
         <header className="stage-top">
           <div className="stage-top-inner">
             <BrandLockup back={back} onHome={onHome} />
+            {onSignIn ? <SignInButton onClick={onSignIn} /> : null}
           </div>
         </header>
         <div className="stage-spacer" />
@@ -535,7 +555,7 @@ function StageView({
                     ) : null}
                   </div>
                 </div>
-                <Bio text={artist.bio} onLocked={guest ? onNeedAccount : undefined} />
+                <Bio text={artist.bio} />
               </div>
             </Expand>
           </Fold>
@@ -591,10 +611,8 @@ function StageView({
                               event={event}
                               open={openEventId === event.id}
                               owner={owner}
-                              guest={guest}
                               artistSlug={artist.slug}
                               replace={replace}
-                              onNeedAccount={onNeedAccount}
                               onEdit={() => replace(`/event/${event.id}/edit`)}
                               onDelete={async () => {
                                 await deleteEvent(event);
@@ -697,13 +715,7 @@ function StageView({
                               playing={current && player.playing}
                               owner={owner}
                               sharePath={artist.slug && track.slug ? trackPath(artist.slug, track.slug) : ""}
-                              onPlay={() => {
-                                if (guest) {
-                                  onNeedAccount?.();
-                                  return;
-                                }
-                                player.toggle(track, queue);
-                              }}
+                              onPlay={() => player.toggle(track, queue)}
                               onEdit={() => setEditingTrackId(track.id)}
                             />
                           </Expand>
@@ -746,10 +758,8 @@ function StageView({
                               event={event}
                               open={openEventId === event.id}
                               owner={owner}
-                              guest={guest}
                               artistSlug={artist.slug}
                               replace={replace}
-                              onNeedAccount={onNeedAccount}
                               onEdit={() => replace(`/event/${event.id}/edit`)}
                               onDelete={async () => {
                                 await deleteEvent(event);
@@ -777,20 +787,16 @@ function EventCard({
   event,
   open,
   owner,
-  guest,
   artistSlug,
   replace,
-  onNeedAccount,
   onEdit,
   onDelete,
 }: {
   event: EventItem;
   open: boolean;
   owner: boolean;
-  guest: boolean;
   artistSlug: string;
   replace: (path: string) => void;
-  onNeedAccount?: () => void;
   onEdit: () => void;
   onDelete: () => Promise<void>;
 }) {
@@ -820,7 +826,7 @@ function EventCard({
   }
 
   const artistUrl = artistSlug ? artistPath(artistSlug) : `/artist/${event.artistId}`;
-  const eventUrl = artistSlug && event.slug ? eventPath(artistSlug, event.slug) : `/event/${event.id}`;
+  const eventUrl = event.visibility === "public" && artistSlug && event.slug ? eventPath(artistSlug, event.slug) : `/event/${event.id}`;
   const canShare = event.visibility === "public" && Boolean(artistSlug && event.slug);
 
   return (
@@ -831,13 +837,7 @@ function EventCard({
         className="night-summary"
         aria-expanded={open}
         aria-controls={`event-panel-${event.id}`}
-        onClick={() => {
-          if (guest && !open) {
-            onNeedAccount?.();
-            return;
-          }
-          replace(open ? artistUrl : eventUrl);
-        }}
+        onClick={() => replace(open ? artistUrl : eventUrl)}
       >
         <span className="night-thumb">
           <Cover url={event.imageURL} alt="" />

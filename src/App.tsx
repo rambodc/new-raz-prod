@@ -1,47 +1,24 @@
-import { useEffect, useRef, useState, type ClipboardEvent, type FormEvent } from "react";
+import { useEffect, useRef, useState, type FormEvent } from "react";
 import { ArtistStage } from "./artist";
 import { HomeScreen } from "./home";
 import { MiniPlayer, Playback } from "./player";
 import { cleanEmail, cleanName, validEmail, validName, type Profile } from "./profile";
-import { currentPath, parseRoute } from "./routes";
-import { SignInSheet, usePreviewNudge } from "./signin";
-import { isPreviewRoute } from "./slug";
-import { confirmEmailChange, explain, requestCode, requestEmailChange, saveProfile, signOutUser, uploadAvatar, verifyCode, watchSession, type Session } from "./services";
-import { Avatar, BackIcon, Boot, BrandLockup, CameraIcon, Field, Scene, TopBar, keepVisible } from "./ui";
+import { currentPath, parseRoute, type Route } from "./routes";
+import { confirmEmailChange, explain, requestEmailChange, saveProfile, signOutUser, uploadAvatar, watchSession, type Session } from "./services";
+import { SignInSheet } from "./signin";
+import { Avatar, BackIcon, Boot, BrandLockup, CameraIcon, Field, Scene, SignInButton, TopBar, keepVisible } from "./ui";
 
-const PENDING_KEY = "razzberry.pendingEmail";
+const GUEST: Profile = { firstName: "", lastName: "", email: "", photoURL: "", role: "fan" };
 
-type Pending = { email: string; sentAt: number };
-
-function readPending(): Pending | null {
-  try {
-    const raw = sessionStorage.getItem(PENDING_KEY);
-    if (!raw) return null;
-    const parsed = JSON.parse(raw) as Partial<Pending>;
-    if (typeof parsed.email !== "string" || !parsed.email) return null;
-    return { email: parsed.email, sentAt: typeof parsed.sentAt === "number" ? parsed.sentAt : 0 };
-  } catch {
-    return null;
-  }
-}
-
-function writePending(pending: Pending) {
-  sessionStorage.setItem(PENDING_KEY, JSON.stringify(pending));
-}
-
-function clearPending() {
-  sessionStorage.removeItem(PENDING_KEY);
+function needsAccount(route: Route): boolean {
+  return route.name === "settings" || route.name === "artist-edit" || route.name === "event-edit";
 }
 
 export default function App() {
   const [session, setSession] = useState<Session>(import.meta.env.MODE === "test" ? { status: "signed-out" } : { status: "loading" });
   const [path, setPath] = useState(currentPath);
-  const [pending, setPending] = useState<Pending | null>(() => (import.meta.env.MODE === "test" ? null : readPending()));
-  const [codeStep, setCodeStep] = useState(() => import.meta.env.MODE !== "test" && readPending() !== null);
-  const [signingIn, setSigningIn] = useState(false);
   const [photoVersion, setPhotoVersion] = useState(0);
   const [authOpen, setAuthOpen] = useState(false);
-  const [nudge, setNudge] = useState(true);
   const historyStack = useRef<string[]>([currentPath()]);
 
   useEffect(() => {
@@ -76,19 +53,13 @@ export default function App() {
   }, []);
 
   useEffect(() => {
-    if (session.status === "signed-in") {
-      clearPending();
-      setSigningIn(false);
-    }
-  }, [session]);
+    if (session.status === "signed-in") setAuthOpen(false);
+  }, [session.status]);
 
   useEffect(() => {
-    if (session.status === "signed-out" && path === "/settings") {
-      historyStack.current = ["/"];
-      window.history.replaceState({ razz: true }, "", "/");
-      setPath("/");
-    }
-  }, [session, path]);
+    if (session.status !== "signed-out") return;
+    if (needsAccount(parseRoute(path))) setAuthOpen(true);
+  }, [session.status, path]);
 
   function go(next: string) {
     if (next === path) return;
@@ -120,95 +91,39 @@ export default function App() {
   }
 
   function goHome() {
-    setCodeStep(false);
     go("/");
   }
 
+  function closeAuth() {
+    setAuthOpen(false);
+    if (session.status === "signed-in") return;
+    const current = parseRoute(path);
+    if (current.name === "artist-edit") replace(`/artist/${current.id}`);
+    else if (current.name === "event-edit" && current.id) replace(`/event/${current.id}`);
+    else if (current.name === "settings" || current.name === "event-edit") replace("/");
+  }
+
+  if (session.status === "loading") return <Boot />;
+
   const signedIn = session.status === "signed-in" ? session : null;
   const needsName = signedIn !== null && !signedIn.profile?.firstName;
+  const route = parseRoute(path);
+  const profile = signedIn?.profile?.firstName ? signedIn.profile : null;
+  const openSignIn = () => setAuthOpen(true);
 
-  const routeNow = parseRoute(path);
-  usePreviewNudge(Boolean(!signedIn && isPreviewRoute(routeNow) && nudge && !authOpen), () => {
-    setAuthOpen(true);
-    setNudge(false);
-  });
-
-  if (session.status === "loading" || signingIn) return <Boot />;
-
-  if (!signedIn && isPreviewRoute(routeNow)) {
-    return (
-      <Playback>
-        <ArtistStage
-          route={routeNow}
-          uid=""
-          profile={{ firstName: "", lastName: "", email: "", photoURL: "", role: "fan" }}
-          go={go}
-          replace={replace}
-          back={backHome}
-          onHome={goHome}
-          guest
-          onNeedAccount={() => setAuthOpen(true)}
-        />
-        {authOpen ? (
-          <SignInSheet
-            onClose={() => {
-              setAuthOpen(false);
-              setNudge(false);
-            }}
-            onVerified={() => setSigningIn(true)}
-          />
-        ) : null}
-      </Playback>
-    );
-  }
-
-  if (!signedIn) {
-    if (codeStep && pending) {
-      return (
-        <CodeScreen
-          email={pending.email}
-          sentAt={pending.sentAt}
-          onHome={goHome}
-          onBack={() => setCodeStep(false)}
-          onSent={(next) => {
-            setPending(next);
-            writePending(next);
-          }}
-          onVerified={() => setSigningIn(true)}
-        />
-      );
-    }
-    return (
-      <EmailScreen
-        initialEmail={pending?.email ?? ""}
-        onHome={goHome}
-        onSent={(next) => {
-          setPending(next);
-          writePending(next);
-          setCodeStep(true);
-        }}
-      />
-    );
-  }
-
-  if (needsName) {
-    return (
+  let body;
+  if (needsName && signedIn) {
+    body = (
       <NameScreen
         uid={signedIn.uid}
         onHome={goHome}
-        onSaved={(profile) => {
+        onSaved={(next) => {
           setPhotoVersion(Date.now());
-          setSession({ ...signedIn, profile });
+          setSession({ ...signedIn, profile: next });
         }}
       />
     );
-  }
-
-  const profile = signedIn.profile;
-  if (!profile?.firstName) return null;
-  const route = routeNow;
-  let body;
-  if (route.name === "settings") {
+  } else if (signedIn && profile && route.name === "settings") {
     body = (
       <SettingsScreen
         uid={signedIn.uid}
@@ -229,21 +144,37 @@ export default function App() {
             profile: profile ? { ...profile, email: next } : profile,
           });
         }}
-        onSignedOut={() => {
-          setCodeStep(false);
-          setPending(null);
-          go("/");
-        }}
+        onSignedOut={() => go("/")}
       />
     );
-  } else if (route.name === "home") {
-    body = <HomeScreen uid={signedIn.uid} profile={profile} photoVersion={photoVersion} onSettings={() => go("/settings")} go={go} />;
+  } else if (route.name === "home" || (!signedIn && (route.name === "settings" || (route.name === "event-edit" && route.id === null)))) {
+    body = (
+      <HomeScreen
+        uid={signedIn?.uid ?? ""}
+        profile={profile}
+        photoVersion={photoVersion}
+        onSettings={profile ? () => go("/settings") : undefined}
+        onSignIn={profile ? undefined : openSignIn}
+        go={go}
+      />
+    );
   } else if (route.name === "artist" || route.name === "artist-edit" || route.name === "event" || route.name === "event-edit" || route.name === "share") {
-    body = <ArtistStage route={route} uid={signedIn.uid} profile={profile} go={go} replace={replace} back={backHome} onHome={goHome} />;
+    body = (
+      <ArtistStage
+        route={route}
+        uid={signedIn?.uid ?? ""}
+        profile={profile ?? GUEST}
+        go={go}
+        replace={replace}
+        back={backHome}
+        onHome={goHome}
+        onSignIn={profile ? undefined : openSignIn}
+      />
+    );
   } else {
     body = (
       <Scene variant="home">
-        <TopBar onHome={goHome} />
+        <TopBar onHome={goHome} avatar={profile ? undefined : <SignInButton onClick={openSignIn} />} />
         <div className="home-column">
           <div className="empty">
             <strong>That page isn't here</strong>
@@ -260,200 +191,21 @@ export default function App() {
   return (
     <Playback>
       {body}
-      <MiniPlayer
-        onOpen={(artistId, trackId) => {
-          const here = document.querySelector(`[data-artist="${artistId}"]`);
-          if (here) {
-            const reduce = typeof window.matchMedia === "function" && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
-            document.getElementById(`track-${trackId}`)?.scrollIntoView({ behavior: reduce ? "auto" : "smooth", block: "center" });
-            return;
-          }
-          go(`/artist/${artistId}`);
-        }}
-      />
-    </Playback>
-  );
-}
-
-function EmailScreen({ initialEmail, onSent, onHome }: { initialEmail: string; onSent: (pending: Pending) => void; onHome: () => void }) {
-  const [email, setEmail] = useState(initialEmail);
-  const [error, setError] = useState("");
-  const [busy, setBusy] = useState(false);
-
-  async function onSubmit(event: FormEvent) {
-    event.preventDefault();
-    const next = cleanEmail(email);
-    if (!validEmail(next)) {
-      setError("Enter a valid email address.");
-      return;
-    }
-    setBusy(true);
-    setError("");
-    try {
-      await requestCode(next);
-      onSent({ email: next, sentAt: Date.now() });
-    } catch (caught) {
-      setError(explain(caught));
-      setBusy(false);
-    }
-  }
-
-  return (
-      <Scene variant="auth">
-      <TopBar menu onHome={onHome} />
-      <form className="auth-main" onSubmit={onSubmit}>
-        <h1 className="headline">Be there.</h1>
-        <p className="subhead">Sign in or create an account.</p>
-        <div className="glass">
-          <Field
-            label="Email"
-            type="email"
-            name="email"
-            autoComplete="email"
-            inputMode="email"
-            enterKeyHint="send"
-            autoCapitalize="none"
-            spellCheck={false}
-            placeholder="you@email.com"
-            value={email}
-            disabled={busy}
-            onChange={(event) => setEmail(event.target.value)}
-            onFocus={() => keepVisible("send-code")}
-          />
-        </div>
-        {error ? <p className="form-error" role="alert">{error}</p> : null}
-        <button id="send-code" className="primary" type="submit" disabled={busy} aria-busy={busy}>
-          {busy ? "Sending…" : "Send me a code"}
-        </button>
-        <p className="fine-print">We'll email you a 6-digit code. No password needed.</p>
-      </form>
-    </Scene>
-  );
-}
-
-function CodeScreen({ email, sentAt, onBack, onSent, onVerified, onHome }: { email: string; sentAt: number; onBack: () => void; onSent: (pending: Pending) => void; onVerified: () => void; onHome: () => void }) {
-  const [code, setCode] = useState("");
-  const [error, setError] = useState("");
-  const [busy, setBusy] = useState(false);
-  const [clock, setClock] = useState(Date.now());
-
-  useEffect(() => {
-    const id = window.setInterval(() => setClock(Date.now()), 500);
-    return () => window.clearInterval(id);
-  }, []);
-
-  const remain = Math.max(0, 60 - Math.floor((clock - sentAt) / 1000));
-
-  async function onSubmit(event: FormEvent) {
-    event.preventDefault();
-    if (!/^\d{6}$/.test(code)) {
-      setError("Enter the 6-digit code.");
-      return;
-    }
-    setBusy(true);
-    setError("");
-    try {
-      await verifyCode(email, code);
-      onVerified();
-    } catch (caught) {
-      setError(explain(caught));
-      setBusy(false);
-    }
-  }
-
-  async function resend() {
-    if (remain > 0 || busy) return;
-    setBusy(true);
-    setError("");
-    try {
-      await requestCode(email);
-      setCode("");
-      onSent({ email, sentAt: Date.now() });
-    } catch (caught) {
-      setError(explain(caught));
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  return (
-    <Scene variant="auth">
-      <TopBar back={onBack} menu onHome={onHome} />
-      <form className="auth-main" onSubmit={onSubmit}>
-        <h1 className="headline long">Check your email</h1>
-        <p className="subhead">We sent a code to {email}</p>
-        <div className="glass">
-          <CodeBoxes value={code} disabled={busy} onChange={setCode} />
-        </div>
-        {error ? <p className="form-error" role="alert">{error}</p> : null}
-        <button id="continue-code" className="primary" type="submit" disabled={busy} aria-busy={busy}>
-          {busy ? "Checking…" : "Continue"}
-        </button>
-        <button type="button" className="text-button" onClick={resend} disabled={busy || remain > 0}>
-          {remain > 0 ? `Resend code in ${remain}s` : "Resend code"}
-        </button>
-      </form>
-    </Scene>
-  );
-}
-
-function CodeBoxes({ value, onChange, disabled }: { value: string; onChange: (next: string) => void; disabled: boolean }) {
-  const refs = useRef<Array<HTMLInputElement | null>>([]);
-  const digits = Array.from({ length: 6 }, (_, index) => value[index] ?? "");
-
-  function write(next: string, focusIndex: number) {
-    const cleaned = next.replace(/\D/g, "").slice(0, 6);
-    onChange(cleaned);
-    refs.current[Math.min(focusIndex, 5)]?.focus();
-  }
-
-  function onPaste(event: ClipboardEvent) {
-    const text = event.clipboardData.getData("text");
-    if (!/\d/.test(text)) return;
-    event.preventDefault();
-    const cleaned = text.replace(/\D/g, "").slice(0, 6);
-    write(cleaned, Math.max(cleaned.length - 1, 0));
-  }
-
-  return (
-    <div className="code-boxes" role="group" aria-label="6-digit code">
-      {digits.map((digit, index) => (
-        <input
-          key={index}
-          ref={(node) => {
-            refs.current[index] = node;
-          }}
-          inputMode="numeric"
-          autoComplete={index === 0 ? "one-time-code" : "off"}
-          aria-label={`Digit ${index + 1}`}
-          pattern="[0-9]*"
-          maxLength={1}
-          value={digit}
-          disabled={disabled}
-          onFocus={() => keepVisible("continue-code")}
-          onPaste={onPaste}
-          onChange={(event) => {
-            const cleaned = event.target.value.replace(/\D/g, "");
-            if (cleaned.length > 1) {
-              write(`${value.slice(0, index)}${cleaned}`, index + cleaned.length);
+      {needsName ? null : (
+        <MiniPlayer
+          onOpen={(artistId, trackId) => {
+            const here = document.querySelector(`[data-artist="${artistId}"]`);
+            if (here) {
+              const reduce = typeof window.matchMedia === "function" && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+              document.getElementById(`track-${trackId}`)?.scrollIntoView({ behavior: reduce ? "auto" : "smooth", block: "center" });
               return;
             }
-            const next = digits.slice();
-            next[index] = cleaned;
-            onChange(next.join("").replace(/\D/g, "").slice(0, 6));
-            if (cleaned && index < 5) refs.current[index + 1]?.focus();
-          }}
-          onKeyDown={(event) => {
-            if (event.key === "Backspace" && !digits[index] && index > 0) {
-              const next = digits.slice();
-              next[index - 1] = "";
-              onChange(next.join(""));
-              refs.current[index - 1]?.focus();
-            }
+            go(`/artist/${artistId}`);
           }}
         />
-      ))}
-    </div>
+      )}
+      {authOpen && !signedIn ? <SignInSheet onClose={closeAuth} onVerified={() => undefined} /> : null}
+    </Playback>
   );
 }
 

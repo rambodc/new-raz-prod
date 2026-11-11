@@ -60,6 +60,61 @@ export type ArtistPageData = {
   tracks: Track[];
 };
 
+export const ARTIST_EVENT_LIMIT = 80;
+
+export type PageFocus = {
+  sameArtist: boolean;
+  openEventId: string | null;
+  highlightTrackId: string | null;
+  pendingEvent: boolean;
+  pendingTrack: boolean;
+};
+
+const noFocus: PageFocus = { sameArtist: false, openEventId: null, highlightTrackId: null, pendingEvent: false, pendingTrack: false };
+
+/** Which event and track this route points at, using only the page already in memory. */
+export function focusFromPage(route: Route, page: ArtistPageData): PageFocus {
+  const artist = page.artist;
+  if (!artist) return noFocus;
+  if (route.name === "share") {
+    if (artist.slug !== route.artistSlug) return noFocus;
+    const event = route.eventSlug ? (page.events.find((item) => item.slug === route.eventSlug) ?? null) : null;
+    const track = route.trackSlug ? (page.tracks.find((item) => item.slug === route.trackSlug) ?? null) : null;
+    return {
+      sameArtist: true,
+      openEventId: event?.id ?? null,
+      highlightTrackId: track?.id ?? null,
+      pendingEvent: Boolean(route.eventSlug) && event == null,
+      pendingTrack: Boolean(route.trackSlug) && track == null,
+    };
+  }
+  if (route.name === "artist" || route.name === "artist-edit") {
+    if (artist.id !== route.id) return noFocus;
+    return { sameArtist: true, openEventId: null, highlightTrackId: null, pendingEvent: false, pendingTrack: false };
+  }
+  if ((route.name === "event" || route.name === "event-edit") && route.id) {
+    const event = page.events.find((item) => item.id === route.id) ?? null;
+    if (!event) return { ...noFocus, pendingEvent: true };
+    return { sameArtist: true, openEventId: event.id, highlightTrackId: null, pendingEvent: false, pendingTrack: false };
+  }
+  return noFocus;
+}
+
+export function focusReady(focus: PageFocus): boolean {
+  return focus.sameArtist && !focus.pendingEvent && !focus.pendingTrack;
+}
+
+export function canonicalFor(route: Route, page: ArtistPageData): string | null {
+  const artist = page.artist;
+  if (!artist?.slug) return null;
+  if (route.name === "artist") return artistPath(artist.slug);
+  if (route.name === "event" && route.id) {
+    const event = page.events.find((item) => item.id === route.id);
+    if (event?.visibility === "public" && event.slug) return eventPath(artist.slug, event.slug);
+  }
+  return null;
+}
+
 const HERO = { maxEdge: 2000, maxBytes: 3_600_000, quality: 0.9 };
 const ARTIST_PHOTO = { maxEdge: 2400, maxBytes: 3_600_000, quality: 0.92 };
 
@@ -149,8 +204,8 @@ export async function listArtistEvents(artistId: string, publicOnly: boolean): P
   const { db } = await client();
   const snap = await getDocs(
     publicOnly
-      ? query(collection(db, "events"), where("artistId", "==", artistId), where("visibility", "==", "public"), orderBy("startsAt", "asc"), limit(80))
-      : query(collection(db, "events"), where("artistId", "==", artistId), orderBy("startsAt", "asc"), limit(80)),
+      ? query(collection(db, "events"), where("artistId", "==", artistId), where("visibility", "==", "public"), orderBy("startsAt", "asc"), limit(ARTIST_EVENT_LIMIT))
+      : query(collection(db, "events"), where("artistId", "==", artistId), orderBy("startsAt", "asc"), limit(ARTIST_EVENT_LIMIT)),
   );
   return eventsFrom(snap.docs).filter((event) => (publicOnly ? event.visibility === "public" : true));
 }
@@ -228,16 +283,33 @@ export async function resolveRoutePage(route: Route, uid: string): Promise<Resol
     const artistId = asString(slugSnap.data().artistId);
     if (!artistId) return emptyResolved;
     const publicOnly = uid !== artistId;
-    const openEventId = route.eventSlug ? await shareTarget(`artists/${artistId}/eventShares/${route.eventSlug}`, "eventId") : null;
-    const highlightTrackId = route.trackSlug ? await shareTarget(`artists/${artistId}/trackShares/${route.trackSlug}`, "trackId") : null;
-    const page = await loadArtistPage(artistId, { ensureEventId: openEventId ?? undefined, publicOnly });
-    const visibleEvent = openEventId && page.events.some((event) => event.id === openEventId) ? openEventId : null;
-    return { page, openEventId: visibleEvent, highlightTrackId, canonicalPath: null };
+    const page = await loadArtistPage(artistId, { publicOnly });
+    const focus = focusFromPage(route, page);
+    let openEventId = focus.openEventId;
+    let highlightTrackId = focus.highlightTrackId;
+    // Opening uses the events already loaded with the artist. The share lookup is only
+    // for a public event that fell off a full page. A short list means the slug is not public,
+    // so we do not read eventShares (a private lookup is denied and would log in the console).
+    if (focus.pendingEvent && route.eventSlug && page.events.length >= ARTIST_EVENT_LIMIT) {
+      const looked = await shareTarget(`artists/${artistId}/eventShares/${route.eventSlug}`, "eventId");
+      const extra = looked ? (page.events.find((item) => item.id === looked) ?? (await getEvent(looked))) : null;
+      if (extra && extra.artistId === artistId && (!publicOnly || extra.visibility === "public")) {
+        if (!page.events.some((item) => item.id === extra.id)) {
+          page.events.push(extra);
+          page.events.sort((a, b) => a.startsAt.getTime() - b.startsAt.getTime());
+        }
+        openEventId = extra.id;
+      }
+    }
+    if (focus.pendingTrack && route.trackSlug) {
+      const looked = await shareTarget(`artists/${artistId}/trackShares/${route.trackSlug}`, "trackId");
+      if (looked && page.tracks.some((track) => track.id === looked)) highlightTrackId = looked;
+    }
+    return { page, openEventId, highlightTrackId, canonicalPath: null };
   }
   if (route.name === "artist" || route.name === "artist-edit") {
     const page = await loadArtistPage(route.id, { publicOnly: uid !== route.id });
-    const canonicalPath = route.name === "artist" && page.artist?.slug ? artistPath(page.artist.slug) : null;
-    return { page, openEventId: null, highlightTrackId: null, canonicalPath };
+    return { page, openEventId: null, highlightTrackId: null, canonicalPath: canonicalFor(route, page) };
   }
   if (route.name === "event" || (route.name === "event-edit" && route.id)) {
     const eventId = route.id;
@@ -245,8 +317,8 @@ export async function resolveRoutePage(route: Route, uid: string): Promise<Resol
     const event = await getEvent(eventId);
     if (!event) return emptyResolved;
     const page = await loadArtistPage(event.artistId, { ensureEventId: eventId, publicOnly: uid !== event.artistId });
-    const canonicalPath = route.name === "event" && page.artist?.slug && event.slug ? eventPath(page.artist.slug, event.slug) : null;
-    return { page, openEventId: eventId, highlightTrackId: null, canonicalPath };
+    const visible = page.events.some((item) => item.id === eventId) ? eventId : null;
+    return { page, openEventId: visible, highlightTrackId: null, canonicalPath: canonicalFor(route, page) };
   }
   if (route.name === "event-edit" && route.id === null && uid) {
     const page = await loadArtistPage(uid, { publicOnly: false });

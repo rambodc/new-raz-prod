@@ -141,23 +141,33 @@ export function openLink(event: MouseEvent<HTMLAnchorElement>, go: (path: string
   go(href);
 }
 
+export function SignInButton({ onClick }: { onClick: () => void }) {
+  return (
+    <button type="button" className="signin-link" onClick={onClick}>
+      Sign in
+    </button>
+  );
+}
+
 export function Page({
   back,
   onHome,
   children,
   tone = "plain",
   narrow = false,
+  avatar,
 }: {
   back?: () => void;
   onHome?: () => void;
   children: ReactNode;
   tone?: "plain" | "form" | "event";
   narrow?: boolean;
+  avatar?: ReactNode;
 }) {
   return (
     <div className={`sheet is-${tone}`}>
       <div className={narrow ? "sheet-column is-narrow" : "sheet-column"}>
-        <TopBar back={back} onHome={onHome} />
+        <TopBar back={back} onHome={onHome} avatar={avatar} />
         {children}
       </div>
     </div>
