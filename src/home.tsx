@@ -1,50 +1,78 @@
-import type { MouseEvent } from "react";
+import type { MouseEvent, ReactNode } from "react";
 import { loadHome, type Artist } from "./data";
 import type { Profile } from "./profile";
 import { artistHref } from "./slug";
-import { Avatar, Boot, Chevron, Cover, Empty, Scene, TopBar, openLink, useLoad } from "./ui";
+import { Avatar, Chevron, Cover, Empty, Scene, SignInButton, TopBar, openLink, useLoad } from "./ui";
 
 export function HomeScreen({
   uid,
   profile,
   photoVersion,
   onSettings,
+  onSignIn,
   go,
 }: {
   uid: string;
-  profile: Profile;
+  profile: Profile | null;
   photoVersion: number;
-  onSettings: () => void;
+  onSettings?: () => void;
+  onSignIn?: () => void;
   go: (path: string) => void;
 }) {
-  const artist = profile.role === "artist";
-  const { status, data, reload } = useLoad(`home:${uid}:${profile.role}`, () => loadHome(uid, profile.role));
-  if (status === "loading") return <Boot />;
-  if (status === "error" || !data) {
-    return (
-      <Scene variant="home">
-        <TopBar
-          onHome={() => go("/")}
-          avatar={
-            <button type="button" className="avatar-link" aria-label="Settings" onClick={onSettings}>
-              <Avatar name={profile.firstName} url={profile.photoURL} version={photoVersion} alt="" />
-            </button>
-          }
-        />
-        <div className="home-column">
-          <div className="empty">
-            <strong>Couldn't load artists</strong>
-            <p>Check your connection and try again.</p>
-            <button className="primary" type="button" onClick={reload}>
-              Try again
-            </button>
-          </div>
-        </div>
-      </Scene>
+  const { status, data, reload } = useLoad(profile ? `home:${uid}:${profile.role}` : "home:guest", () => loadHome(profile ? uid : "", profile?.role ?? "fan"));
+  const account = profile && onSettings ? (
+    <button type="button" className="avatar-link" aria-label="Settings" onClick={onSettings}>
+      <Avatar name={profile.firstName} url={profile.photoURL} version={photoVersion} alt="" />
+    </button>
+  ) : onSignIn ? (
+    <SignInButton onClick={onSignIn} />
+  ) : null;
+
+  let body: ReactNode;
+  if (status === "loading") {
+    body = (
+      <div className="home-column">
+        <p className="stage-empty">Loading artists…</p>
+      </div>
     );
+  } else if (status === "error" || !data) {
+    body = (
+      <div className="home-column">
+        <div className="empty">
+          <strong>Couldn't load artists</strong>
+          <p>Check your connection and try again.</p>
+          <button className="primary" type="button" onClick={reload}>
+            Try again
+          </button>
+        </div>
+      </div>
+    );
+  } else {
+    body = <HomeBody uid={uid} profile={profile} photoVersion={photoVersion} home={data} go={go} />;
   }
 
-  const home = data;
+  return (
+    <Scene variant="home">
+      <TopBar onHome={() => go("/")} avatar={account} />
+      {body}
+    </Scene>
+  );
+}
+
+function HomeBody({
+  uid,
+  profile,
+  photoVersion,
+  home,
+  go,
+}: {
+  uid: string;
+  profile: Profile | null;
+  photoVersion: number;
+  home: { artist: Artist | null; artists: Artist[] };
+  go: (path: string) => void;
+}) {
+  const artist = profile?.role === "artist";
   function openMine(event: MouseEvent<HTMLAnchorElement>) {
     if (event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
     event.preventDefault();
@@ -54,16 +82,8 @@ export function HomeScreen({
   const artists = artist ? home.artists.filter((item) => item.id !== uid) : home.artists;
 
   return (
-    <Scene variant="home">
-      <TopBar
-        onHome={() => go("/")}
-        avatar={
-          <button type="button" className="avatar-link" aria-label="Settings" onClick={onSettings}>
-            <Avatar name={profile.firstName} url={profile.photoURL} version={photoVersion} alt="" />
-          </button>
-        }
-      />
       <div className={artist ? "home-column is-artist" : "home-column is-fan"}>
+        {profile ? (
         <div className="hello">
           <div className="hello-avatar">
             <Avatar name={profile.firstName} url={profile.photoURL} version={photoVersion} alt="" />
@@ -73,6 +93,7 @@ export function HomeScreen({
             {artist ? <p>You're an artist</p> : null}
           </div>
         </div>
+        ) : null}
         {artist && home.artist ? (
           <section className="mine">
             <p>Your artist page</p>
@@ -87,7 +108,6 @@ export function HomeScreen({
         <h2 className="section-label">Artists</h2>
         <ArtistGrid artists={artists} go={go} />
       </div>
-    </Scene>
   );
 }
 

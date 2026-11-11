@@ -1,30 +1,7 @@
-import { useEffect, useRef, useState, type FormEvent } from "react";
+import { useState, type FormEvent } from "react";
 import { cleanEmail, validEmail } from "./profile";
 import { explain, requestCode, verifyCode } from "./services";
 import { Field } from "./ui";
-
-export function usePreviewNudge(enabled: boolean, onOpen: () => void) {
-  const openRef = useRef(onOpen);
-  openRef.current = onOpen;
-  useEffect(() => {
-    if (!enabled) return;
-    let done = false;
-    const open = () => {
-      if (done) return;
-      done = true;
-      openRef.current();
-    };
-    const timer = window.setTimeout(open, 3200);
-    const onScroll = () => {
-      if (window.scrollY > 180) open();
-    };
-    window.addEventListener("scroll", onScroll, { passive: true });
-    return () => {
-      window.clearTimeout(timer);
-      window.removeEventListener("scroll", onScroll);
-    };
-  }, [enabled]);
-}
 
 export function SignInSheet({ onClose, onVerified }: { onClose: () => void; onVerified: () => void }) {
   const [email, setEmail] = useState("");
@@ -72,12 +49,12 @@ export function SignInSheet({ onClose, onVerified }: { onClose: () => void; onVe
   return (
     <div className="signin-sheet" role="dialog" aria-labelledby="signin-title">
       <div className="signin-head">
-        <h2 id="signin-title">Sign in to join in</h2>
+        <h2 id="signin-title">Sign in</h2>
         <button type="button" className="stage-text" onClick={onClose}>
           Close
         </button>
       </div>
-      <p className="signin-copy">The page stays here. Sign in to play, open the details, and come back to this link.</p>
+      <p className="signin-copy">We'll email you a 6-digit code. No password needed.</p>
       {sentTo ? (
         <form onSubmit={(event) => void confirm(event)}>
           <Field label="Code" inputMode="numeric" autoComplete="one-time-code" value={code} disabled={busy} maxLength={6} onChange={(event) => setCode(event.target.value.replace(/\D/g, "").slice(0, 6))} />

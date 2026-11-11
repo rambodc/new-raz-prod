@@ -291,7 +291,7 @@ export function EventForm({
             Private
           </button>
         </div>
-        <p className="visibility-note">{visibility === "public" ? "Anyone with the link can preview this event." : "Only you can see this event. Sharing stays off."}</p>
+        <p className="visibility-note">{visibility === "public" ? "Anyone with the link can open this event." : "Only you can see this event. Sharing stays off."}</p>
       </div>
       {error ? <p className="form-error" role="alert">{error}</p> : null}
       <button className="primary" type="submit" disabled={busy} aria-busy={busy}>

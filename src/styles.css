@@ -23,11 +23,8 @@ html, body, #root {
   background: #000;
 }
 
-html { overflow-x: clip; }
-
 body {
   min-height: 100dvh;
-  overflow-x: clip;
 }
 
 button, input { font: inherit; color: inherit; }
@@ -968,6 +965,7 @@ img { max-width: 100%; display: block; }
 .sheet {
   position: relative;
   min-height: 100dvh;
+  overflow-x: clip;
   background: #000;
   color: #fff;
 }
@@ -1298,6 +1296,7 @@ img { max-width: 100%; display: block; }
 .stage {
   position: relative;
   min-height: 100dvh;
+  overflow-x: clip;
   background: #000;
   color: #fff;
 }
@@ -1375,6 +1374,30 @@ img { max-width: 100%; display: block; }
   margin-right: auto;
   margin-left: auto;
 }
+
+.stage-top-inner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  min-height: 64px;
+}
+
+.signin-link {
+  min-height: 44px;
+  margin: 0;
+  padding: 8px 2px;
+  border: 0;
+  background: transparent;
+  color: rgba(255, 255, 255, 0.88);
+  font: inherit;
+  font-size: 15px;
+  font-weight: 650;
+  letter-spacing: -0.01em;
+  white-space: nowrap;
+}
+
+.signin-link:active { color: #fff; }
 
 .stage-top .wordmark,
 .stage-top .brand-mark {
@@ -1802,7 +1825,7 @@ img { max-width: 100%; display: block; }
 .signin-sheet {
   position: fixed;
   left: 50%;
-  bottom: calc(16px + env(safe-area-inset-bottom));
+  bottom: calc(16px + env(safe-area-inset-bottom) + var(--dock));
   z-index: 40;
   width: min(440px, calc(100% - 24px));
   padding: 16px 16px 18px;
@@ -1874,7 +1897,9 @@ img { max-width: 100%; display: block; }
 }
 
 .night.is-open .night-thumb {
-  display: none;
+  width: 0;
+  height: 0;
+  opacity: 0;
 }
 
 .night-thumb img,
@@ -1926,7 +1951,10 @@ img { max-width: 100%; display: block; }
 .night-photo {
   width: 100%;
   height: auto;
+  aspect-ratio: 16 / 9;
+  object-fit: cover;
   border-radius: 16px;
+  background: rgba(255, 255, 255, 0.06);
 }
 
 .night-detail-when,
@@ -2353,6 +2381,7 @@ span.mini-art {
   .night:hover { background: rgba(255, 255, 255, 0.08); }
   .track:hover { background: rgba(255, 255, 255, 0.07); }
   .icon-btn:hover { background: rgba(255, 255, 255, 0.22); }
+  .signin-link:hover { color: #fff; }
   .artist-card img,
   .artist-card .cover-fallback { transition: transform 0.45s ease; }
   .artist-card:hover img,

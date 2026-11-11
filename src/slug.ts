@@ -121,7 +121,3 @@ export function trackPath(artistSlug: string, trackSlug: string): string {
 export function artistHref(artist: { id: string; slug: string }): string {
   return artist.slug ? artistPath(artist.slug) : `/artist/${artist.id}`;
 }
-
-export function isPreviewRoute(route: { name: string }): boolean {
-  return route.name === "share" || route.name === "artist" || route.name === "artist-edit" || route.name === "event" || route.name === "event-edit";
-}
