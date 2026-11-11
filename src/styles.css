@@ -821,38 +821,61 @@ img { max-width: 100%; display: block; }
 
 .artist-grid {
   list-style: none;
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 18px 14px;
-  margin: 0;
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 14px;
+  width: min(100%, 920px);
+  margin: 0 auto;
   padding: 0;
 }
 
+.artist-grid > li {
+  width: calc(50% - 7px);
+  max-width: 280px;
+}
+
 .artist-card {
-  display: grid;
-  gap: 8px;
-  color: inherit;
+  position: relative;
+  display: block;
+  aspect-ratio: 3 / 4;
+  overflow: hidden;
+  border-radius: 18px;
+  color: #fff;
   text-decoration: none;
+  background: #161214;
 }
 
 .artist-card img,
 .artist-card .cover-fallback {
+  position: absolute;
+  inset: 0;
   width: 100%;
-  aspect-ratio: 1;
+  height: 100%;
   object-fit: cover;
-  border-radius: 18px;
-  background: rgba(18, 16, 18, 0.55);
-  box-shadow: 0 10px 24px rgba(0, 0, 0, 0.28);
+  border-radius: 0;
+  background: #161214;
 }
 
-.artist-card .cover-fallback svg { width: 36px; height: 44px; }
+.artist-card .cover-fallback svg { width: 42px; height: 52px; }
 
-.artist-card span {
-  font-size: 15px;
-  font-weight: 600;
-  letter-spacing: -0.02em;
-  line-height: 1.25;
-  overflow-wrap: anywhere;
+.artist-card-shade {
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(to top, rgba(0, 0, 0, 0.84) 0%, rgba(0, 0, 0, 0.28) 42%, rgba(0, 0, 0, 0) 70%);
+}
+
+.artist-card-name {
+  position: absolute;
+  left: 12px;
+  right: 12px;
+  bottom: 14px;
+  color: #fff;
+  font-size: 17px;
+  font-weight: 700;
+  letter-spacing: -0.03em;
+  line-height: 1.15;
+  text-shadow: 0 2px 12px rgba(0, 0, 0, 0.45);
 }
 
 .event-list {
@@ -1202,7 +1225,8 @@ img { max-width: 100%; display: block; }
   .home-column.is-fan,
   .home-column.is-artist { margin-top: 0; }
 
-  .artist-grid { grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 28px 22px; }
+  .artist-grid { gap: 22px; width: min(100%, 900px); }
+  .artist-grid > li { width: calc((100% - 44px) / 3); max-width: 280px; }
 
   .settings-column { width: min(640px, calc(100% - 128px)); padding-top: 40px; }
 
@@ -1375,6 +1399,13 @@ img { max-width: 100%; display: block; }
   align-items: flex-end;
   justify-content: space-between;
   gap: 12px;
+}
+
+.stage-actions {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  margin-bottom: 8px;
 }
 
 .stage-identity h1 {
@@ -1654,8 +1685,156 @@ img { max-width: 100%; display: block; }
 .track-list .fold-inner { padding: 0; }
 
 .night {
+  position: relative;
   border-radius: 22px;
   scroll-margin: 16px 0 150px;
+}
+
+.night .share-btn {
+  position: absolute;
+  top: 12px;
+  right: 40px;
+  z-index: 1;
+}
+
+.share-btn {
+  width: 28px;
+  height: 28px;
+  display: grid;
+  flex: 0 0 auto;
+  place-items: center;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background: transparent;
+  color: rgba(255, 255, 255, 0.62);
+  transition: color 0.2s ease, background 0.2s ease, transform 0.2s ease;
+}
+
+.share-btn svg {
+  width: 15px;
+  height: 15px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.7;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.share-btn:active { transform: scale(0.94); }
+
+.private-mark {
+  display: inline-block;
+  margin-left: 8px;
+  padding: 2px 7px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.14);
+  color: rgba(255, 255, 255, 0.86);
+  font-size: 11px;
+  font-weight: 650;
+  letter-spacing: 0.02em;
+  vertical-align: 2px;
+}
+
+.visibility {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 4px;
+  padding: 4px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.visibility button {
+  height: 36px;
+  border: 0;
+  border-radius: 999px;
+  background: transparent;
+  color: rgba(255, 255, 255, 0.7);
+  font: inherit;
+  font-size: 14px;
+  font-weight: 650;
+  transition: background 0.2s ease, color 0.2s ease;
+}
+
+.visibility button.is-on {
+  background: rgba(255, 255, 255, 0.16);
+  color: #fff;
+}
+
+.visibility-note {
+  margin: 0;
+  color: rgba(255, 255, 255, 0.62);
+  font-size: 13px;
+  line-height: 1.4;
+}
+
+.track.is-cued {
+  background: rgba(255, 255, 255, 0.07);
+  animation: cue-in 0.6s ease;
+}
+
+@keyframes cue-in {
+  from { background: rgba(255, 255, 255, 0.16); }
+  to { background: rgba(255, 255, 255, 0.07); }
+}
+
+.toast {
+  position: fixed;
+  left: 50%;
+  bottom: calc(28px + env(safe-area-inset-bottom));
+  z-index: 50;
+  transform: translateX(-50%);
+  padding: 10px 14px;
+  border-radius: 999px;
+  background: rgba(28, 28, 30, 0.94);
+  color: #fff;
+  font-size: 14px;
+  font-weight: 600;
+  animation: toast-in 0.28s ease;
+}
+
+@keyframes toast-in {
+  from { transform: translateX(-50%) translateY(8px); opacity: 0; }
+  to { transform: translateX(-50%) translateY(0); opacity: 1; }
+}
+
+.signin-sheet {
+  position: fixed;
+  left: 50%;
+  bottom: calc(16px + env(safe-area-inset-bottom));
+  z-index: 40;
+  width: min(440px, calc(100% - 24px));
+  padding: 16px 16px 18px;
+  border-radius: 22px;
+  background: rgba(16, 14, 16, 0.94);
+  box-shadow: 0 18px 50px rgba(0, 0, 0, 0.45);
+  animation: sheet-up 0.35s ease;
+}
+
+.signin-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.signin-head h2 {
+  margin: 0;
+  font-size: 20px;
+  letter-spacing: -0.03em;
+}
+
+.signin-copy {
+  margin: 8px 0 14px;
+  color: rgba(255, 255, 255, 0.72);
+  font-size: 14px;
+  line-height: 1.4;
+}
+
+@keyframes sheet-up {
+  from { transform: translateX(-50%) translateY(14px); opacity: 0; }
+  to { transform: translateX(-50%) translateY(0); opacity: 1; }
 }
 
 .night-summary,
@@ -2175,9 +2354,9 @@ span.mini-art {
   .track:hover { background: rgba(255, 255, 255, 0.07); }
   .icon-btn:hover { background: rgba(255, 255, 255, 0.22); }
   .artist-card img,
-  .artist-card .cover-fallback { transition: transform 0.25s ease; }
+  .artist-card .cover-fallback { transition: transform 0.45s ease; }
   .artist-card:hover img,
-  .artist-card:hover .cover-fallback { transform: translateY(-2px); }
+  .artist-card:hover .cover-fallback { transform: scale(1.045); }
 }
 
 @media (min-width: 960px) {

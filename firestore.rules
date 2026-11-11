@@ -4,11 +4,18 @@ service cloud.firestore {
 
     // users/{uid}: firstName, lastName, email, photoURL, role, createdAt, updatedAt.
     // role is "fan" or "artist". Clients create fans only and can never change role or email.
-    // artists/{uid}: name, bio, imageURL, ownerUid, createdAt, updatedAt. Public read.
-    //   Created by setUserRole (Admin SDK). The owner may update name, bio and imageURL only.
-    // events/{eventId}: artistId, title, startsAt, venue, city, description, imageURL, ticketUrl, createdAt, updatedAt.
-    //   ticketUrl is empty or an http(s) link. Public read. Only the owning artist, with role artist, can write.
-    // artists/{artistId}/tracks/{trackId}: title, duration, order, audioURL, coverURL, createdAt, updatedAt.
+    // artists/{uid}: name, bio, imageURL, ownerUid, slug, createdAt, updatedAt, optional ogRevision.
+    //   Public read. Created by setUserRole (Admin SDK), which also claims slugs/{slug}.
+    //   The owner may update name, bio and imageURL only. slug and ogRevision stay put.
+    // slugs/{slug}: { artistId, kind: "artist" }. Public get so a share URL can resolve. Clients cannot write.
+    // events/{eventId}: artistId, title, startsAt, venue, city, description, imageURL, ticketUrl,
+    //   visibility ("public" | "private", missing means public), slug, createdAt, updatedAt, optional ogRevision.
+    //   Public events are world-readable. Private events are readable by the owning artist only.
+    //   events/{eventId}/invites/{uid} is reserved for a future invite list. Clients cannot touch it yet.
+    //   A later rule can allow the owner to write invites and an invitee to read the private event.
+    // artists/{artistId}/eventShares/{slug}: { eventId }. The per-artist lock for an event share URL.
+    // artists/{artistId}/trackShares/{slug}: { trackId }. The per-artist lock for a track share URL.
+    // artists/{artistId}/tracks/{trackId}: title, duration, order, audioURL, coverURL, slug, createdAt, updatedAt.
     //   Public read. Only that artist can write. Audio lives in Storage at artists/{artistId}/tracks/.
     // loginCodes, emailChanges and authRateLimits are written only by Cloud Functions (the Admin SDK).
     // A photo URL is empty or a download URL for this user's own avatar.
@@ -159,8 +166,16 @@ service cloud.firestore {
         && safeId(artistId)
         && request.auth.uid == artistId
         && resource.data.ownerUid == request.auth.uid
-        && request.resource.data.keys().hasOnly(['name', 'bio', 'imageURL', 'ownerUid', 'createdAt', 'updatedAt'])
+        && request.resource.data.keys().hasOnly(['name', 'bio', 'imageURL', 'ownerUid', 'createdAt', 'updatedAt', 'slug', 'ogRevision'])
         && request.resource.data.keys().hasAll(['name', 'bio', 'imageURL', 'ownerUid', 'createdAt', 'updatedAt'])
+        && (!('slug' in request.resource.data) || (
+          request.resource.data.slug is string
+          && request.resource.data.slug.size() > 0
+          && request.resource.data.slug.size() <= 60
+          && request.resource.data.slug.matches('^[a-z0-9]+(-[a-z0-9]+)*$')
+          && request.resource.data.slug == resource.data.slug
+        ))
+        && (!('ogRevision' in request.resource.data) || request.resource.data.ogRevision == resource.data.ogRevision)
         && textOk(request.resource.data.name, 80)
         && request.resource.data.bio is string
         && request.resource.data.bio.size() <= 600
@@ -189,10 +204,36 @@ service cloud.firestore {
       );
     }
 
+    function optionalSlug(d) {
+      return !('slug' in d) || (
+        d.slug is string
+        && d.slug.size() > 0
+        && d.slug.size() <= 60
+        && d.slug.matches('^[a-z0-9]+(-[a-z0-9]+)*$')
+      );
+    }
+
+    function optionalRevision(d) {
+      return !('ogRevision' in d) || (
+        d.ogRevision is string
+        && d.ogRevision.size() > 0
+        && d.ogRevision.size() <= 64
+        && d.ogRevision.matches('^[a-f0-9]+$')
+      );
+    }
+
+    function eventIsPublic() {
+      return !('visibility' in resource.data) || resource.data.visibility == 'public';
+    }
+
+    function eventOwner() {
+      return request.auth != null && resource.data.artistId == request.auth.uid;
+    }
+
     function validEvent(eventId) {
       let d = request.resource.data;
       return safeId(eventId)
-        && d.keys().hasOnly(['artistId', 'title', 'startsAt', 'venue', 'city', 'description', 'imageURL', 'ticketUrl', 'createdAt', 'updatedAt'])
+        && d.keys().hasOnly(['artistId', 'title', 'startsAt', 'venue', 'city', 'description', 'imageURL', 'ticketUrl', 'createdAt', 'updatedAt', 'slug', 'visibility', 'ogRevision'])
         && d.keys().hasAll(['artistId', 'title', 'startsAt', 'venue', 'city', 'description', 'imageURL', 'ticketUrl', 'createdAt', 'updatedAt'])
         && d.artistId == request.auth.uid
         && textOk(d.title, 120)
@@ -203,12 +244,20 @@ service cloud.firestore {
         && urlInFolder(d.imageURL, 'events', eventId)
         && validTicket(d.ticketUrl)
         && d.createdAt is timestamp
-        && d.updatedAt is timestamp;
+        && d.updatedAt is timestamp
+        && optionalSlug(d)
+        && (request.method == 'create' || !('slug' in d) || !('slug' in resource.data) || d.slug == resource.data.slug)
+        && (!('slug' in d) || d.slug != 't')
+        && (!('visibility' in d) || d.visibility == 'public' || d.visibility == 'private')
+        && optionalRevision(d)
+        && (request.method != 'create' || !('ogRevision' in d));
     }
 
-    // Events are public. A fan cannot write one, and an artist cannot write someone else's.
+    // Public events are readable by anyone. Private events are readable by the owning artist.
+    // A list has to name visibility or the owner, so a fan cannot pull someone else's private nights.
     match /events/{eventId} {
-      allow read: if true;
+      allow get: if eventIsPublic() || eventOwner();
+      allow list: if resource.data.visibility == 'public' || eventOwner();
       allow create: if callerIsArtist()
         && validEvent(eventId)
         && request.resource.data.createdAt == request.time
@@ -219,9 +268,17 @@ service cloud.firestore {
         && request.resource.data.artistId == resource.data.artistId
         && request.resource.data.createdAt == resource.data.createdAt
         && request.resource.data.updatedAt == request.time
+        && (!('slug' in resource.data) || request.resource.data.slug == resource.data.slug)
+        && (!('ogRevision' in resource.data) || request.resource.data.ogRevision == resource.data.ogRevision)
         && request.resource.data.diff(resource.data).affectedKeys()
-          .hasOnly(['title', 'startsAt', 'venue', 'city', 'description', 'imageURL', 'ticketUrl', 'updatedAt']);
+          .hasOnly(['title', 'startsAt', 'venue', 'city', 'description', 'imageURL', 'ticketUrl', 'visibility', 'updatedAt']);
       allow delete: if callerIsArtist() && resource.data.artistId == request.auth.uid;
+
+      // Placeholder for a later invite list. Not readable or writable by clients today.
+      // When invites ship, allow the owner to write invites/{uid} and let that uid read this private event.
+      match /invites/{inviteId} {
+        allow read, write: if false;
+      }
     }
 
     function urlInTracks(url, artistId) {
@@ -247,8 +304,11 @@ service cloud.firestore {
       let d = request.resource.data;
       return safeId(trackId)
         && safeId(artistId)
-        && d.keys().hasOnly(['title', 'duration', 'order', 'audioURL', 'coverURL', 'createdAt', 'updatedAt'])
+        && d.keys().hasOnly(['title', 'duration', 'order', 'audioURL', 'coverURL', 'createdAt', 'updatedAt', 'slug', 'ogRevision'])
         && d.keys().hasAll(['title', 'duration', 'order', 'audioURL', 'coverURL', 'createdAt', 'updatedAt'])
+        && optionalSlug(d)
+        && optionalRevision(d)
+        && (request.method != 'create' || !('ogRevision' in d))
         && textOk(d.title, 120)
         && d.duration is number
         && d.duration > 0
@@ -273,6 +333,8 @@ service cloud.firestore {
         && validTrack(artistId, trackId)
         && request.resource.data.createdAt == resource.data.createdAt
         && request.resource.data.updatedAt == request.time
+        && (!('slug' in resource.data) || request.resource.data.slug == resource.data.slug)
+        && (!('ogRevision' in resource.data) || request.resource.data.ogRevision == resource.data.ogRevision)
         && request.resource.data.diff(resource.data).affectedKeys()
           .hasOnly(['title', 'duration', 'order', 'audioURL', 'coverURL', 'updatedAt']);
       allow delete: if ownsArtistPage(artistId);
@@ -307,6 +369,53 @@ service cloud.firestore {
       allow get: if request.auth != null && checkinId.matches('^[A-Za-z0-9]+_' + request.auth.uid + '$');
       allow list: if request.auth != null && resource.data.uid == request.auth.uid;
       allow write: if false;
+    }
+
+    // Artist handles. The document is only an id pointer. Clients cannot claim or steal one.
+    match /slugs/{slug} {
+      allow get: if true;
+      allow list, create, update, delete: if false;
+    }
+
+    function linkedEventPublic(artistId) {
+      let eventId = resource.data.eventId;
+      let eventPath = /databases/$(database)/documents/events/$(eventId);
+      return eventId is string
+        && safeId(eventId)
+        && exists(eventPath)
+        && get(eventPath).data.artistId == artistId
+        && (!('visibility' in get(eventPath).data) || get(eventPath).data.visibility == 'public');
+    }
+
+    // One event slug per artist. Create only when the event already says this slug and this owner.
+    match /artists/{artistId}/eventShares/{slug} {
+      allow get: if (request.auth != null && request.auth.uid == artistId) || linkedEventPublic(artistId);
+      allow list: if false;
+      allow create: if ownsArtistPage(artistId)
+        && slug.matches('^[a-z0-9]+(-[a-z0-9]+)*$')
+        && slug != 't'
+        && request.resource.data.keys().hasOnly(['eventId'])
+        && request.resource.data.keys().hasAll(['eventId'])
+        && safeId(request.resource.data.eventId)
+        && exists(/databases/$(database)/documents/events/$(request.resource.data.eventId))
+        && get(/databases/$(database)/documents/events/$(request.resource.data.eventId)).data.artistId == artistId
+        && get(/databases/$(database)/documents/events/$(request.resource.data.eventId)).data.slug == slug;
+      allow update: if false;
+      allow delete: if ownsArtistPage(artistId);
+    }
+
+    match /artists/{artistId}/trackShares/{slug} {
+      allow get: if true;
+      allow list: if false;
+      allow create: if ownsArtistPage(artistId)
+        && slug.matches('^[a-z0-9]+(-[a-z0-9]+)*$')
+        && request.resource.data.keys().hasOnly(['trackId'])
+        && request.resource.data.keys().hasAll(['trackId'])
+        && safeId(request.resource.data.trackId)
+        && exists(/databases/$(database)/documents/artists/$(artistId)/tracks/$(request.resource.data.trackId))
+        && get(/databases/$(database)/documents/artists/$(artistId)/tracks/$(request.resource.data.trackId)).data.slug == slug;
+      allow update: if false;
+      allow delete: if ownsArtistPage(artistId);
     }
 
     // Everything else is closed.

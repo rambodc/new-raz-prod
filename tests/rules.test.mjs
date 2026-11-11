@@ -1,4 +1,5 @@
 import { readFile } from "node:fs/promises";
+import assert from "node:assert/strict";
 import { after, before, beforeEach, test } from "node:test";
 import { initializeTestEnvironment, assertFails, assertSucceeds } from "@firebase/rules-unit-testing";
 import { collection, deleteDoc, doc, getDoc, getDocs, orderBy, query, serverTimestamp, setDoc, Timestamp, updateDoc, where } from "firebase/firestore";
@@ -223,6 +224,8 @@ function eventDoc(id, extra = {}) {
     description: "An intimate late-night set.",
     imageURL: eventImage(id),
     ticketUrl: "",
+    visibility: "public",
+    slug: "night",
     createdAt: serverTimestamp(),
     updatedAt: serverTimestamp(),
     ...extra,
@@ -273,7 +276,7 @@ test("artist pages and events are public to read, and only the owning artist can
 
   await assertSucceeds(setDoc(doc(nova, "events/night1"), eventDoc("night1")));
   await assertSucceeds(getDoc(doc(anon, "events/night1")));
-  await assertSucceeds(getDocs(query(collection(anon, "events"), where("startsAt", ">=", at(0)), orderBy("startsAt", "asc"))));
+  await assertSucceeds(getDocs(query(collection(anon, "events"), where("artistId", "==", "nova"), where("visibility", "==", "public"), orderBy("startsAt", "asc"))));
   await assertSucceeds(updateDoc(doc(nova, "events/night1"), { title: "Late Night Set", updatedAt: serverTimestamp() }));
   await assertFails(updateDoc(doc(nova, "events/night1"), { artistId: "ada", updatedAt: serverTimestamp() }));
   await assertFails(updateDoc(doc(nova, "events/night1"), { title: "Nope", imageURL: `https://firebasestorage.googleapis.com/v0/b/b/o/events%2Fother%2Fcover.jpg?x=events%2Fnight1%2F`, updatedAt: serverTimestamp() }));
@@ -476,4 +479,93 @@ test("a user can read and replace only their own avatar, as a small jpeg png or 
     await uploadBytes(ref(context.storage(), "users/ada/avatar"), jpeg, { contentType: "image/jpeg" });
   });
   await assertFails(deleteObject(ref(mallory, "users/ada/avatar")));
+});
+
+test("public events are readable signed out, private events are only readable by the owner", async () => {
+  await seedArtist("nova");
+  await seedArtist("ada", "fan");
+  const nova = authed("nova", "nova@example.com");
+  const ada = authed("ada");
+  const anon = testEnv.unauthenticatedContext().firestore();
+  await assertSucceeds(setDoc(doc(nova, "events/pub1"), eventDoc("pub1", { slug: "river-room", visibility: "public" })));
+  await assertSucceeds(setDoc(doc(nova, "events/sec1"), eventDoc("sec1", { slug: "secret-set", visibility: "private", title: "Secret Set" })));
+  await assertSucceeds(getDoc(doc(anon, "events/pub1")));
+  await assertSucceeds(getDoc(doc(ada, "events/pub1")));
+  await assertFails(getDoc(doc(anon, "events/sec1")));
+  await assertFails(getDoc(doc(ada, "events/sec1")));
+  await assertSucceeds(getDoc(doc(nova, "events/sec1")));
+  await assertSucceeds(getDocs(query(collection(anon, "events"), where("artistId", "==", "nova"), where("visibility", "==", "public"), orderBy("startsAt", "asc"))));
+  await assertFails(getDocs(query(collection(anon, "events"), where("artistId", "==", "nova"), orderBy("startsAt", "asc"))));
+  const ownerList = await getDocs(query(collection(nova, "events"), where("artistId", "==", "nova"), orderBy("startsAt", "asc")));
+  assert.deepEqual(ownerList.docs.map((item) => item.id).sort(), ["pub1", "sec1"]);
+  await assertSucceeds(updateDoc(doc(nova, "events/sec1"), { visibility: "public", updatedAt: serverTimestamp() }));
+  await assertSucceeds(getDoc(doc(anon, "events/sec1")));
+  await assertSucceeds(updateDoc(doc(nova, "events/sec1"), { visibility: "private", updatedAt: serverTimestamp() }));
+  await assertFails(getDoc(doc(anon, "events/sec1")));
+  await assertFails(updateDoc(doc(ada, "events/sec1"), { visibility: "public", updatedAt: serverTimestamp() }));
+  await assertFails(updateDoc(doc(nova, "events/pub1"), { slug: "stolen", updatedAt: serverTimestamp() }));
+  await assertFails(getDoc(doc(anon, "events/pub1/invites/ada")));
+  await assertFails(setDoc(doc(nova, "events/pub1/invites/ada"), { uid: "ada" }));
+});
+
+test("share lookups cannot be hijacked and private event links stay hidden", async () => {
+  await seedArtist("nova");
+  await seedArtist("bob");
+  const nova = authed("nova", "nova@example.com");
+  const bob = authed("bob", "bob@example.com");
+  const anon = testEnv.unauthenticatedContext().firestore();
+  await assertFails(setDoc(doc(nova, "slugs/nova"), { artistId: "nova", kind: "artist" }));
+  await assertFails(setDoc(doc(anon, "slugs/nova"), { artistId: "mallory", kind: "artist" }));
+  await testEnv.withSecurityRulesDisabled(async (context) => {
+    await setDoc(doc(context.firestore(), "slugs/dj-nova"), { artistId: "nova", kind: "artist" });
+    await updateDoc(doc(context.firestore(), "artists/nova"), { slug: "dj-nova" });
+  });
+  await assertSucceeds(getDoc(doc(anon, "slugs/dj-nova")));
+  await assertFails(updateDoc(doc(nova, "slugs/dj-nova"), { artistId: "bob" }));
+  await assertFails(deleteDoc(doc(nova, "slugs/dj-nova")));
+  await assertSucceeds(updateDoc(doc(nova, "artists/nova"), { bio: "Still mine.", updatedAt: serverTimestamp() }));
+  await assertFails(updateDoc(doc(nova, "artists/nova"), { slug: "bob-vale", updatedAt: serverTimestamp() }));
+
+  await assertSucceeds(setDoc(doc(nova, "events/ev1"), eventDoc("ev1", { slug: "river-room", visibility: "public" })));
+  await assertSucceeds(setDoc(doc(nova, "events/ev2"), eventDoc("ev2", { slug: "secret-set", visibility: "private" })));
+  await assertSucceeds(setDoc(doc(nova, "artists/nova/eventShares/river-room"), { eventId: "ev1" }));
+  await assertSucceeds(setDoc(doc(nova, "artists/nova/eventShares/secret-set"), { eventId: "ev2" }));
+  await assertSucceeds(getDoc(doc(anon, "artists/nova/eventShares/river-room")));
+  await assertFails(getDoc(doc(anon, "artists/nova/eventShares/secret-set")));
+  await assertSucceeds(getDoc(doc(nova, "artists/nova/eventShares/secret-set")));
+  await assertFails(setDoc(doc(bob, "artists/nova/eventShares/river-room-2"), { eventId: "ev1" }));
+  await assertFails(setDoc(doc(nova, "artists/nova/eventShares/other"), { eventId: "ev1" }));
+  await assertFails(setDoc(doc(nova, "artists/nova/eventShares/t"), { eventId: "ev1" }));
+  await assertFails(updateDoc(doc(nova, "artists/nova/eventShares/river-room"), { eventId: "ev2" }));
+  await assertSucceeds(deleteDoc(doc(nova, "artists/nova/eventShares/river-room")));
+
+  await assertSucceeds(setDoc(doc(nova, "artists/nova/tracks/song1"), trackDoc({ slug: "midnight" })));
+  await assertSucceeds(setDoc(doc(nova, "artists/nova/trackShares/midnight"), { trackId: "song1" }));
+  await assertSucceeds(getDoc(doc(anon, "artists/nova/trackShares/midnight")));
+  await assertFails(setDoc(doc(bob, "artists/nova/trackShares/dawn"), { trackId: "song1" }));
+  await assertFails(updateDoc(doc(nova, "artists/nova/tracks/song1"), { slug: "dawn", updatedAt: serverTimestamp() }));
+});
+
+test("preview images are public to read and private event photos are not", async () => {
+  await seedArtist("nova");
+  await seed();
+  const jpeg = new Uint8Array([0xff, 0xd8, 0xff, 0xd9]);
+  await testEnv.withSecurityRulesDisabled(async (context) => {
+    const db = context.firestore();
+    await setDoc(doc(db, "events/open1"), { artistId: "nova", visibility: "public" });
+    await setDoc(doc(db, "events/shut1"), { artistId: "nova", visibility: "private" });
+    await uploadBytes(ref(context.storage(), "og/artists/nova.jpg"), jpeg, { contentType: "image/jpeg" });
+    await uploadBytes(ref(context.storage(), "events/open1/cover.jpg"), jpeg, { contentType: "image/jpeg" });
+    await uploadBytes(ref(context.storage(), "events/shut1/cover.jpg"), jpeg, { contentType: "image/jpeg" });
+  });
+  const nova = testEnv.authenticatedContext("nova", { email: "nova@example.com" }).storage();
+  const ada = testEnv.authenticatedContext("ada", { email: EMAIL }).storage();
+  const anon = testEnv.unauthenticatedContext().storage();
+  await assertSucceeds(getBytes(ref(anon, "og/artists/nova.jpg")));
+  await assertFails(uploadBytes(ref(nova, "og/artists/nova.jpg"), jpeg, { contentType: "image/jpeg" }));
+  await assertFails(uploadBytes(ref(ada, "og/events/open1.jpg"), jpeg, { contentType: "image/jpeg" }));
+  await assertSucceeds(getBytes(ref(anon, "events/open1/cover.jpg")));
+  await assertFails(getBytes(ref(anon, "events/shut1/cover.jpg")));
+  await assertFails(getBytes(ref(ada, "events/shut1/cover.jpg")));
+  await assertSucceeds(getBytes(ref(nova, "events/shut1/cover.jpg")));
 });

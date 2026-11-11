@@ -1,5 +1,8 @@
 // Sets users/{uid}.role. Only an admin custom claim may do this through the callable.
-// Promoting someone to artist also creates artists/{uid} from their profile, once.
+// Promoting someone to artist also creates artists/{uid} from their profile, once,
+// and claims a public slug at slugs/{slug}.
+
+import { slugCandidates } from "./slug.js";
 
 const EMAIL_RE = /^[a-z0-9.!#$%&'*+/=?^_`{|}~-]+@[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?(?:\.[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?)+$/;
 
@@ -59,6 +62,23 @@ export async function applyUserRole({ db, auth, caller = null, email, role, gran
       const artist = role === "artist" ? await tx.get(artistRef) : null;
       if (!snap.exists) throw new RoleError("not-found", "That person has not finished signing up.");
       const profile = snap.data() || {};
+      let slug = "";
+      const slugRefs = [];
+      if (role === "artist" && artist && !artist.exists) {
+        for (const candidate of slugCandidates(artistNameFromProfile(profile)).slice(0, 8)) {
+          slugRefs.push({ slug: candidate, ref: db.doc(`slugs/${candidate}`) });
+        }
+      }
+      const slugSnaps = [];
+      for (const item of slugRefs) slugSnaps.push(await tx.get(item.ref));
+      for (let i = 0; i < slugSnaps.length; i += 1) {
+        const found = slugSnaps[i];
+        if (!found.exists || found.data()?.artistId === user.uid) {
+          slug = slugRefs[i].slug;
+          break;
+        }
+      }
+      if (role === "artist" && artist && !artist.exists && !slug) throw new RoleError("slug", "Could not assign a page link.");
       tx.update(userRef, { role, updatedAt: timestampOf(now) });
       if (role === "artist" && artist && !artist.exists) {
         tx.set(artistRef, {
@@ -66,9 +86,11 @@ export async function applyUserRole({ db, auth, caller = null, email, role, gran
           bio: "",
           imageURL: artistImageFromProfile(profile),
           ownerUid: user.uid,
+          slug,
           createdAt: timestampOf(now),
           updatedAt: timestampOf(now),
         });
+        tx.set(db.doc(`slugs/${slug}`), { artistId: user.uid, kind: "artist" });
       }
     });
   }

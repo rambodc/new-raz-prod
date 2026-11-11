@@ -7,6 +7,7 @@
     "functions": { "port": 5001 },
     "firestore": { "port": 8080 },
     "storage": { "port": 9199 },
+    "hosting": { "port": 5000 },
     "ui": { "enabled": false }
   },
   "hosting": {
@@ -17,6 +18,9 @@
     "rewrites": [
       { "source": "/api/scene", "function": { "functionId": "sceneChat", "region": "us-central1" } },
       { "source": "/api/image", "function": { "functionId": "sceneImage", "region": "us-central1" } },
+      { "source": "/*/t/*", "function": { "functionId": "sharePage", "region": "us-central1" } },
+      { "source": "/*/*", "function": { "functionId": "sharePage", "region": "us-central1" } },
+      { "source": "/*", "function": { "functionId": "sharePage", "region": "us-central1" } },
       { "source": "**", "destination": "/index.html" }
     ],
     "headers": [

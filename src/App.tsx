@@ -4,6 +4,8 @@ import { HomeScreen } from "./home";
 import { MiniPlayer, Playback } from "./player";
 import { cleanEmail, cleanName, validEmail, validName, type Profile } from "./profile";
 import { currentPath, parseRoute } from "./routes";
+import { SignInSheet, usePreviewNudge } from "./signin";
+import { isPreviewRoute } from "./slug";
 import { confirmEmailChange, explain, requestCode, requestEmailChange, saveProfile, signOutUser, uploadAvatar, verifyCode, watchSession, type Session } from "./services";
 import { Avatar, BackIcon, Boot, BrandLockup, CameraIcon, Field, Scene, TopBar, keepVisible } from "./ui";
 
@@ -38,6 +40,8 @@ export default function App() {
   const [codeStep, setCodeStep] = useState(() => import.meta.env.MODE !== "test" && readPending() !== null);
   const [signingIn, setSigningIn] = useState(false);
   const [photoVersion, setPhotoVersion] = useState(0);
+  const [authOpen, setAuthOpen] = useState(false);
+  const [nudge, setNudge] = useState(true);
   const historyStack = useRef<string[]>([currentPath()]);
 
   useEffect(() => {
@@ -123,7 +127,40 @@ export default function App() {
   const signedIn = session.status === "signed-in" ? session : null;
   const needsName = signedIn !== null && !signedIn.profile?.firstName;
 
+  const routeNow = parseRoute(path);
+  usePreviewNudge(Boolean(!signedIn && isPreviewRoute(routeNow) && nudge && !authOpen), () => {
+    setAuthOpen(true);
+    setNudge(false);
+  });
+
   if (session.status === "loading" || signingIn) return <Boot />;
+
+  if (!signedIn && isPreviewRoute(routeNow)) {
+    return (
+      <Playback>
+        <ArtistStage
+          route={routeNow}
+          uid=""
+          profile={{ firstName: "", lastName: "", email: "", photoURL: "", role: "fan" }}
+          go={go}
+          replace={replace}
+          back={backHome}
+          onHome={goHome}
+          guest
+          onNeedAccount={() => setAuthOpen(true)}
+        />
+        {authOpen ? (
+          <SignInSheet
+            onClose={() => {
+              setAuthOpen(false);
+              setNudge(false);
+            }}
+            onVerified={() => setSigningIn(true)}
+          />
+        ) : null}
+      </Playback>
+    );
+  }
 
   if (!signedIn) {
     if (codeStep && pending) {
@@ -169,7 +206,7 @@ export default function App() {
 
   const profile = signedIn.profile;
   if (!profile?.firstName) return null;
-  const route = parseRoute(path);
+  const route = routeNow;
   let body;
   if (route.name === "settings") {
     body = (
@@ -201,7 +238,7 @@ export default function App() {
     );
   } else if (route.name === "home") {
     body = <HomeScreen uid={signedIn.uid} profile={profile} photoVersion={photoVersion} onSettings={() => go("/settings")} go={go} />;
-  } else if (route.name === "artist" || route.name === "artist-edit" || route.name === "event" || route.name === "event-edit") {
+  } else if (route.name === "artist" || route.name === "artist-edit" || route.name === "event" || route.name === "event-edit" || route.name === "share") {
     body = <ArtistStage route={route} uid={signedIn.uid} profile={profile} go={go} replace={replace} back={backHome} onHome={goHome} />;
   } else {
     body = (
@@ -225,7 +262,8 @@ export default function App() {
       {body}
       <MiniPlayer
         onOpen={(artistId, trackId) => {
-          if (path === `/artist/${artistId}` || path.startsWith(`/artist/${artistId}/`)) {
+          const here = document.querySelector(`[data-artist="${artistId}"]`);
+          if (here) {
             const reduce = typeof window.matchMedia === "function" && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
             document.getElementById(`track-${trackId}`)?.scrollIntoView({ behavior: reduce ? "auto" : "smooth", block: "center" });
             return;

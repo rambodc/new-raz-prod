@@ -1,6 +1,7 @@
 import type { MouseEvent } from "react";
 import { loadHome, type Artist } from "./data";
 import type { Profile } from "./profile";
+import { artistHref } from "./slug";
 import { Avatar, Boot, Chevron, Cover, Empty, Scene, TopBar, openLink, useLoad } from "./ui";
 
 export function HomeScreen({
@@ -43,13 +44,14 @@ export function HomeScreen({
     );
   }
 
+  const home = data;
   function openMine(event: MouseEvent<HTMLAnchorElement>) {
     if (event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
     event.preventDefault();
-    go(`/artist/${uid}`);
+    go(artistHref(home.artist ?? { id: uid, slug: "" }));
   }
 
-  const artists = artist ? data.artists.filter((item) => item.id !== uid) : data.artists;
+  const artists = artist ? home.artists.filter((item) => item.id !== uid) : home.artists;
 
   return (
     <Scene variant="home">
@@ -71,13 +73,13 @@ export function HomeScreen({
             {artist ? <p>You're an artist</p> : null}
           </div>
         </div>
-        {artist && data.artist ? (
+        {artist && home.artist ? (
           <section className="mine">
             <p>Your artist page</p>
-            <a href={`/artist/${uid}`} onClick={openMine}>
-              <Cover url={data.artist.imageURL} alt="" />
+            <a href={artistHref(home.artist)} onClick={openMine}>
+              <Cover url={home.artist.imageURL} alt="" />
               <span className="mine-shade" />
-              <span className="mine-name">{data.artist.name}</span>
+              <span className="mine-name">{home.artist.name}</span>
               <Chevron />
             </a>
           </section>
@@ -95,9 +97,10 @@ function ArtistGrid({ artists, go }: { artists: Artist[]; go: (path: string) => 
     <ul className="artist-grid">
       {artists.map((artist) => (
         <li key={artist.id}>
-          <a className="artist-card" href={`/artist/${artist.id}`} onClick={(click) => openLink(click, go)}>
+          <a className="artist-card" href={artistHref(artist)} onClick={(click) => openLink(click, go)}>
             <Cover url={artist.imageURL} alt="" />
-            <span>{artist.name}</span>
+            <span className="artist-card-shade" aria-hidden="true" />
+            <span className="artist-card-name">{artist.name}</span>
           </a>
         </li>
       ))}
