@@ -1,6 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { loadImage } from "@napi-rs/canvas";
+import { readFileSync } from "node:fs";
+import { createCanvas, loadImage } from "@napi-rs/canvas";
 import { eventSubtitle, injectShareMeta, isPublicEvent, shareMeta } from "../lib/og.js";
 import { renderOgCard } from "../lib/ogImage.js";
 import { parseSharePath, slugCandidates, slugify } from "../lib/slug.js";
@@ -164,11 +165,36 @@ test("backfill assigns slugs once and leaves private events private", async () =
   assert.equal(records["events/e2"].title, "Secret Set");
 });
 
-test("preview cards are 1200 by 630 jpeg", async () => {
-  const jpeg = await renderOgCard({ photo: null, title: "Ada Vale", subtitle: "Nov 11 · Hall, Calgary" });
+function pixel(image, x, y) {
+  const canvas = createCanvas(image.width, image.height);
+  const ctx = canvas.getContext("2d");
+  ctx.drawImage(image, 0, 0);
+  return ctx.getImageData(x, y, 1, 1).data;
+}
+
+test("preview cards crop the uploaded photo and draw the raspberry mark", async () => {
+  const photo = readFileSync(new URL("../../public/concert.jpg", import.meta.url));
+  const jpeg = await renderOgCard({ photo, title: "River Room", subtitle: "Dec 19 · River Room, Calgary" });
   assert.equal(jpeg[0], 0xff);
   assert.equal(jpeg[1], 0xd8);
   const image = await loadImage(jpeg);
   assert.equal(image.width, 1200);
   assert.equal(image.height, 630);
+
+  let berry = false;
+  for (let y = 34; y < 84 && !berry; y += 2) {
+    for (let x = 58; x < 110; x += 2) {
+      const [red, green, blue] = pixel(image, x, y);
+      if (red > 200 && green < 90 && blue > 70 && blue < 150) berry = true;
+    }
+  }
+  assert.equal(berry, true);
+
+  const lights = pixel(image, 860, 180);
+  const flat = Math.hypot(lights[0] - 20, lights[1] - 8, lights[2] - 13);
+  assert.ok(flat > 50, `photo did not show through the card (${lights[0]},${lights[1]},${lights[2]})`);
+  const sky = pixel(image, 600, 150);
+  const floor = pixel(image, 600, 560);
+  const luma = (sample) => sample[0] * 0.3 + sample[1] * 0.6 + sample[2] * 0.1;
+  assert.ok(luma(floor) < luma(sky), "the bottom gradient should keep the name readable");
 });
