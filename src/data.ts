@@ -1,10 +1,14 @@
 import { FirebaseError } from "firebase/app";
-import { collection, deleteDoc, doc, getDoc, getDocs, limit, orderBy, query, serverTimestamp, setDoc, Timestamp, updateDoc, where, writeBatch } from "firebase/firestore";
+import { collection, deleteDoc, doc, getDoc, getDocs, limit, orderBy, query, serverTimestamp, Timestamp, updateDoc, where, writeBatch } from "firebase/firestore";
 import { deleteObject, getDownloadURL, ref, uploadBytes } from "firebase/storage";
 import { AUDIO_LIMIT, audioKind } from "./audio";
 import { client, storageObjectUrl } from "./firebase";
 import type { Role } from "./profile";
+import type { Route } from "./routes";
 import { resizeImage, type ImageCrop } from "./resizeImage";
+import { artistPath, eventPath, slugCandidates } from "./slug";
+
+export type Visibility = "public" | "private";
 
 export type Artist = {
   id: string;
@@ -12,6 +16,7 @@ export type Artist = {
   bio: string;
   imageURL: string;
   ownerUid: string;
+  slug: string;
 };
 
 export type EventItem = {
@@ -24,6 +29,8 @@ export type EventItem = {
   description: string;
   imageURL: string;
   ticketUrl: string;
+  visibility: Visibility;
+  slug: string;
 };
 
 export type EventInput = {
@@ -34,6 +41,7 @@ export type EventInput = {
   description: string;
   imageURL: string;
   ticketUrl: string;
+  visibility: Visibility;
 };
 
 export type Track = {
@@ -43,6 +51,7 @@ export type Track = {
   order: number;
   audioURL: string;
   coverURL: string;
+  slug: string;
 };
 
 export type ArtistPageData = {
@@ -71,6 +80,7 @@ export function readArtist(id: string, data: Record<string, unknown>): Artist | 
     bio: asString(data.bio),
     imageURL: asString(data.imageURL),
     ownerUid: asString(data.ownerUid),
+    slug: asString(data.slug),
   };
 }
 
@@ -89,6 +99,8 @@ export function readEvent(id: string, data: Record<string, unknown>): EventItem 
     description: asString(data.description),
     imageURL: asString(data.imageURL),
     ticketUrl: asString(data.ticketUrl).trim(),
+    visibility: data.visibility === "private" ? "private" : "public",
+    slug: asString(data.slug),
   };
 }
 
@@ -98,7 +110,7 @@ export function readTrack(id: string, data: Record<string, unknown>): Track | nu
   const order = typeof data.order === "number" ? data.order : Number.NaN;
   const audioURL = asString(data.audioURL);
   if (!title || !Number.isFinite(duration) || !Number.isFinite(order) || !audioURL) return null;
-  return { id, title, duration, order, audioURL, coverURL: asString(data.coverURL) };
+  return { id, title, duration, order, audioURL, coverURL: asString(data.coverURL), slug: asString(data.slug) };
 }
 
 function eventsFrom(docs: Array<{ id: string; data: () => Record<string, unknown> }>): EventItem[] {
@@ -117,21 +129,30 @@ export async function getArtist(id: string): Promise<Artist | null> {
 
 export async function getEvent(id: string): Promise<EventItem | null> {
   const { db } = await client();
-  const snap = await getDoc(doc(db, "events", id));
-  if (!snap.exists()) return null;
-  return readEvent(snap.id, snap.data());
+  try {
+    const snap = await getDoc(doc(db, "events", id));
+    if (!snap.exists()) return null;
+    return readEvent(snap.id, snap.data());
+  } catch (error) {
+    if (error instanceof FirebaseError && error.code === "permission-denied") return null;
+    throw error;
+  }
 }
 
 export async function listUpcomingEvents(): Promise<EventItem[]> {
   const { db } = await client();
-  const snap = await getDocs(query(collection(db, "events"), where("startsAt", ">=", Timestamp.fromDate(new Date())), orderBy("startsAt", "asc"), limit(40)));
+  const snap = await getDocs(query(collection(db, "events"), where("visibility", "==", "public"), where("startsAt", ">=", Timestamp.fromDate(new Date())), orderBy("startsAt", "asc"), limit(40)));
   return eventsFrom(snap.docs);
 }
 
-export async function listArtistEvents(artistId: string): Promise<EventItem[]> {
+export async function listArtistEvents(artistId: string, publicOnly: boolean): Promise<EventItem[]> {
   const { db } = await client();
-  const snap = await getDocs(query(collection(db, "events"), where("artistId", "==", artistId), orderBy("startsAt", "asc"), limit(80)));
-  return eventsFrom(snap.docs);
+  const snap = await getDocs(
+    publicOnly
+      ? query(collection(db, "events"), where("artistId", "==", artistId), where("visibility", "==", "public"), orderBy("startsAt", "asc"), limit(80))
+      : query(collection(db, "events"), where("artistId", "==", artistId), orderBy("startsAt", "asc"), limit(80)),
+  );
+  return eventsFrom(snap.docs).filter((event) => (publicOnly ? event.visibility === "public" : true));
 }
 
 export async function listArtists(): Promise<Artist[]> {
@@ -161,13 +182,15 @@ export async function listTracks(artistId: string): Promise<Track[]> {
     .sort((a, b) => a.order - b.order || a.title.localeCompare(b.title) || a.id.localeCompare(b.id));
 }
 
-export async function loadArtistPage(id: string, ensureEventId?: string): Promise<ArtistPageData> {
+export async function loadArtistPage(id: string, options?: { ensureEventId?: string; publicOnly?: boolean }): Promise<ArtistPageData> {
   const artist = await getArtist(id);
   if (!artist) return { artist: null, events: [], tracks: [] };
-  const [events, tracks] = await Promise.all([listArtistEvents(id), listTracks(id)]);
+  const publicOnly = options?.publicOnly ?? false;
+  const [events, tracks] = await Promise.all([listArtistEvents(id, publicOnly), listTracks(id)]);
+  const ensureEventId = options?.ensureEventId;
   if (ensureEventId && !events.some((event) => event.id === ensureEventId)) {
     const extra = await getEvent(ensureEventId);
-    if (extra && extra.artistId === id) {
+    if (extra && extra.artistId === id && (!publicOnly || extra.visibility === "public")) {
       events.push(extra);
       events.sort((a, b) => a.startsAt.getTime() - b.startsAt.getTime());
     }
@@ -175,10 +198,78 @@ export async function loadArtistPage(id: string, ensureEventId?: string): Promis
   return { artist, events, tracks };
 }
 
+export type ResolvedPage = {
+  page: ArtistPageData;
+  openEventId: string | null;
+  highlightTrackId: string | null;
+  canonicalPath: string | null;
+};
+
+const emptyResolved: ResolvedPage = { page: { artist: null, events: [], tracks: [] }, openEventId: null, highlightTrackId: null, canonicalPath: null };
+
+async function shareTarget(path: string, field: "eventId" | "trackId"): Promise<string | null> {
+  const { db } = await client();
+  try {
+    const snap = await getDoc(doc(db, path));
+    if (!snap.exists()) return null;
+    const value = snap.data()[field];
+    return typeof value === "string" && value ? value : null;
+  } catch (error) {
+    if (error instanceof FirebaseError && error.code === "permission-denied") return null;
+    throw error;
+  }
+}
+
+export async function resolveRoutePage(route: Route, uid: string): Promise<ResolvedPage> {
+  if (route.name === "share") {
+    const { db } = await client();
+    const slugSnap = await getDoc(doc(db, "slugs", route.artistSlug));
+    if (!slugSnap.exists()) return emptyResolved;
+    const artistId = asString(slugSnap.data().artistId);
+    if (!artistId) return emptyResolved;
+    const publicOnly = uid !== artistId;
+    const openEventId = route.eventSlug ? await shareTarget(`artists/${artistId}/eventShares/${route.eventSlug}`, "eventId") : null;
+    const highlightTrackId = route.trackSlug ? await shareTarget(`artists/${artistId}/trackShares/${route.trackSlug}`, "trackId") : null;
+    const page = await loadArtistPage(artistId, { ensureEventId: openEventId ?? undefined, publicOnly });
+    const visibleEvent = openEventId && page.events.some((event) => event.id === openEventId) ? openEventId : null;
+    return { page, openEventId: visibleEvent, highlightTrackId, canonicalPath: null };
+  }
+  if (route.name === "artist" || route.name === "artist-edit") {
+    const page = await loadArtistPage(route.id, { publicOnly: uid !== route.id });
+    const canonicalPath = route.name === "artist" && page.artist?.slug ? artistPath(page.artist.slug) : null;
+    return { page, openEventId: null, highlightTrackId: null, canonicalPath };
+  }
+  if (route.name === "event" || (route.name === "event-edit" && route.id)) {
+    const eventId = route.id;
+    if (!eventId) return emptyResolved;
+    const event = await getEvent(eventId);
+    if (!event) return emptyResolved;
+    const page = await loadArtistPage(event.artistId, { ensureEventId: eventId, publicOnly: uid !== event.artistId });
+    const canonicalPath = route.name === "event" && page.artist?.slug && event.slug ? eventPath(page.artist.slug, event.slug) : null;
+    return { page, openEventId: eventId, highlightTrackId: null, canonicalPath };
+  }
+  if (route.name === "event-edit" && route.id === null && uid) {
+    const page = await loadArtistPage(uid, { publicOnly: false });
+    return { page, openEventId: null, highlightTrackId: null, canonicalPath: null };
+  }
+  return emptyResolved;
+}
+
 export async function loadLinkedArtist(eventId: string): Promise<ArtistPageData> {
   const event = await getEvent(eventId);
   if (!event) return { artist: null, events: [], tracks: [] };
-  return loadArtistPage(event.artistId, eventId);
+  return loadArtistPage(event.artistId, { ensureEventId: eventId, publicOnly: false });
+}
+
+async function pickSlug(artistId: string, kind: "event" | "track", name: string): Promise<string> {
+  const { db } = await client();
+  const collectionName = kind === "event" ? "eventShares" : "trackShares";
+  const blocked = kind === "event" ? ["t", "edit"] : [];
+  for (const slug of slugCandidates(name, blocked)) {
+    const snap = await getDoc(doc(db, "artists", artistId, collectionName, slug));
+    if (!snap.exists()) return slug;
+  }
+  throw new Error("Could not create a link for that name.");
 }
 
 export async function loadEventPage(id: string): Promise<{ event: EventItem | null; artist: Artist | null }> {
@@ -210,9 +301,12 @@ export async function publishEvent(uid: string, input: EventInput, file: File): 
   const blob = await resizeImage(file, HERO);
   const { db, storage } = await client();
   const id = doc(collection(db, "events")).id;
+  const slug = await pickSlug(uid, "event", input.title);
   const path = `events/${id}/cover.jpg`;
   const refDoc = doc(db, "events", id);
-  await setDoc(refDoc, {
+  const share = doc(db, "artists", uid, "eventShares", slug);
+  const batch = writeBatch(db);
+  batch.set(refDoc, {
     artistId: uid,
     title: input.title,
     startsAt: Timestamp.fromDate(input.startsAt),
@@ -221,14 +315,19 @@ export async function publishEvent(uid: string, input: EventInput, file: File): 
     description: input.description,
     imageURL: storageObjectUrl(path),
     ticketUrl: input.ticketUrl,
+    visibility: input.visibility,
+    slug,
     createdAt: serverTimestamp(),
     updatedAt: serverTimestamp(),
   });
+  batch.set(share, { eventId: id });
+  await batch.commit();
   try {
     const stored = ref(storage, path);
     await uploadBytes(stored, blob, { contentType: "image/jpeg", cacheControl: "public,max-age=3600" });
     await updateDoc(refDoc, { imageURL: cacheBust(await getDownloadURL(stored)), updatedAt: serverTimestamp() });
   } catch (error) {
+    await deleteDoc(share).catch(() => undefined);
     await deleteDoc(refDoc).catch(() => undefined);
     throw error;
   }
@@ -247,6 +346,7 @@ export async function saveEvent(id: string, input: EventInput, file: File | null
     description: input.description,
     imageURL,
     ticketUrl: input.ticketUrl,
+    visibility: input.visibility,
     updatedAt: serverTimestamp(),
   });
 }
@@ -294,15 +394,20 @@ export async function publishTrack(
   try {
     const coverURL = cover ? await putImage(coverPath, cover) : "";
     const audioURL = await getDownloadURL(storedAudio);
-    await setDoc(doc(db, "artists", artistId, "tracks", id), {
+    const slug = await pickSlug(artistId, "track", input.title);
+    const batch = writeBatch(db);
+    batch.set(doc(db, "artists", artistId, "tracks", id), {
       title: input.title,
       duration: Math.round(input.duration * 1000) / 1000,
       order: Math.max(0, Math.round(input.order)),
       audioURL,
       coverURL,
+      slug,
       createdAt: serverTimestamp(),
       updatedAt: serverTimestamp(),
     });
+    batch.set(doc(db, "artists", artistId, "trackShares", slug), { trackId: id });
+    await batch.commit();
     return id;
   } catch (error) {
     await removeFile(audioPath);
@@ -330,16 +435,18 @@ export async function deleteTrack(artistId: string, track: Track): Promise<void>
   if (audioPath) await removeFile(audioPath);
   if (track.coverURL.includes(`cover-${track.id}`)) await removeFile(`artists/${artistId}/cover-${track.id}.jpg`);
   const { db } = await client();
+  if (track.slug) await deleteDoc(doc(db, "artists", artistId, "trackShares", track.slug)).catch(() => undefined);
   await deleteDoc(doc(db, "artists", artistId, "tracks", track.id));
 }
 
-export async function deleteEvent(id: string): Promise<void> {
+export async function deleteEvent(event: { id: string; artistId: string; slug: string }): Promise<void> {
   const { db, storage } = await client();
   try {
-    await deleteObject(ref(storage, `events/${id}/cover.jpg`));
+    await deleteObject(ref(storage, `events/${event.id}/cover.jpg`));
   } catch (error) {
     const missing = error instanceof FirebaseError && error.code.includes("object-not-found");
     if (!missing) throw error;
   }
-  await deleteDoc(doc(db, "events", id));
+  if (event.slug) await deleteDoc(doc(db, "artists", event.artistId, "eventShares", event.slug)).catch(() => undefined);
+  await deleteDoc(doc(db, "events", event.id));
 }

@@ -98,9 +98,11 @@ test("promoting a fan creates the artist page from their name and photo, once", 
     bio: "",
     imageURL: profile.photoURL,
     ownerUid: "nova",
+    slug: "nova-vale",
     createdAt: { ms: 50 },
     updatedAt: { ms: 50 },
   });
+  assert.deepEqual(db.store.get("slugs/nova-vale"), { artistId: "nova", kind: "artist" });
   db.store.get("artists/nova").bio = "kept";
   db.store.get("artists/nova").name = "DJ Nova";
   await applyUserRole({ db, auth, caller: admin, email: "nova@example.com", role: "artist", now: 80, timestampOf: ts });

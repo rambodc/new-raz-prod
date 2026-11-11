@@ -2,7 +2,10 @@ import { initializeApp } from "firebase-admin/app";
 import { getAuth } from "firebase-admin/auth";
 import { getFirestore, Timestamp } from "firebase-admin/firestore";
 import { getStorage } from "firebase-admin/storage";
+import { onDocumentWritten } from "firebase-functions/v2/firestore";
 import { HttpsError, onCall, onRequest } from "firebase-functions/v2/https";
+import { ensureOgImage, handleShareRequest } from "./lib/sharePage.js";
+import { syncArtistRecord, syncEventRecord, syncTrackRecord } from "./lib/shares.js";
 import { defineSecret } from "firebase-functions/params";
 import { acceptLoginCode, emulatorSinkEnabled, issueLoginCode, LoginError, sendWithResend } from "./lib/loginCode.js";
 import { confirmEmailChange as applyEmailChange, EmailChangeError, requestEmailChange as issueEmailChange } from "./lib/emailChange.js";
@@ -18,7 +21,49 @@ const options = { region: "us-central1", maxInstances: 10 };
 initializeApp({ storageBucket: BUCKET });
 
 /** Bump when the deployed functions change, so a deploy can be confirmed end to end. */
-export const FUNCTIONS_VERSION = "2026.11.10-email";
+export const FUNCTIONS_VERSION = "2026.11.11-share";
+
+const imageOptions = { region: "us-central1", memory: "1GiB", timeoutSeconds: 60, maxInstances: 5 };
+
+function saveOg(spec) {
+  return ensureOgImage({ ...spec, bucket: getStorage().bucket(), bucketName: BUCKET });
+}
+
+/**
+ * Share URLs are rewritten here so crawlers receive index.html with Open Graph tags.
+ * Browsers receive that same shell and boot the SPA. Static files never hit this function.
+ */
+export const sharePage = onRequest({ ...imageOptions, maxInstances: 10, cors: false, invoker: "public" }, async (req, res) => {
+  try {
+    const result = await handleShareRequest(req, { db: getFirestore(), bucket: getStorage().bucket(), bucketName: BUCKET });
+    res.set("Cache-Control", result.cache);
+    res.set("Content-Type", "text/html; charset=utf-8");
+    res.status(result.status).send(result.html);
+  } catch (error) {
+    console.error("sharePage failed", error?.message || error);
+    res.set("Cache-Control", "no-store");
+    res.set("Content-Type", "text/html; charset=utf-8");
+    res.status(200).send('<!doctype html><title>Razzberry</title><meta name="theme-color" content="#000000">');
+  }
+});
+
+export const shareArtist = onDocumentWritten({ document: "artists/{artistId}", ...imageOptions }, async (event) => {
+  const after = event.data?.after?.data();
+  if (!after) return;
+  await syncArtistRecord(getFirestore(), getStorage().bucket(), event.params.artistId, after, saveOg);
+});
+
+export const shareEvent = onDocumentWritten({ document: "events/{eventId}", ...imageOptions }, async (event) => {
+  const after = event.data?.after?.data();
+  if (!after) return;
+  await syncEventRecord(getFirestore(), getStorage().bucket(), event.params.eventId, after, saveOg);
+});
+
+export const shareTrack = onDocumentWritten({ document: "artists/{artistId}/tracks/{trackId}", ...imageOptions }, async (event) => {
+  const after = event.data?.after?.data();
+  if (!after) return;
+  await syncTrackRecord(getFirestore(), getStorage().bucket(), event.params.artistId, event.params.trackId, after, saveOg);
+});
 
 const xaiKey = defineSecret("XAI_API_KEY");
 const resendKey = defineSecret("RESEND_API_KEY");

@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { parseRoute } from "./routes";
 
 describe("routes", () => {
-  it("maps the artist and event pages", () => {
+  it("keeps the app routes and reads public share links", () => {
     expect(parseRoute("/")).toEqual({ name: "home" });
     expect(parseRoute("/settings")).toEqual({ name: "settings" });
     expect(parseRoute("/artist/nova")).toEqual({ name: "artist", id: "nova" });
@@ -10,6 +10,10 @@ describe("routes", () => {
     expect(parseRoute("/events/new")).toEqual({ name: "event-edit", id: null });
     expect(parseRoute("/event/night")).toEqual({ name: "event", id: "night" });
     expect(parseRoute("/event/night/edit")).toEqual({ name: "event-edit", id: "night" });
-    expect(parseRoute("/nope")).toEqual({ name: "missing" });
+    expect(parseRoute("/ada-vale")).toEqual({ name: "share", artistSlug: "ada-vale", eventSlug: null, trackSlug: null });
+    expect(parseRoute("/ada-vale/river-room")).toEqual({ name: "share", artistSlug: "ada-vale", eventSlug: "river-room", trackSlug: null });
+    expect(parseRoute("/ada-vale/t/midnight")).toEqual({ name: "share", artistSlug: "ada-vale", eventSlug: null, trackSlug: "midnight" });
+    expect(parseRoute("/login")).toEqual({ name: "missing" });
+    expect(parseRoute("/nope/nope/nope")).toEqual({ name: "missing" });
   });
 });

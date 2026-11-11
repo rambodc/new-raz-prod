@@ -67,9 +67,17 @@ service firebase.storage {
       allow delete: if isArtistUser() && safeId(artistId) && request.auth.uid == artistId;
     }
 
-    // Event images are public to read. The event document must already exist and belong to this artist.
+    function eventIsPublic(eventId) {
+      return firestore.exists(eventDoc(eventId))
+        && (
+          !('visibility' in firestore.get(eventDoc(eventId)).data)
+          || firestore.get(eventDoc(eventId)).data.visibility == 'public'
+        );
+    }
+
+    // Public event images are world-readable. A private event image is readable by its artist only.
     match /events/{eventId}/{file} {
-      allow read: if true;
+      allow read: if eventIsPublic(eventId) || (signedIn() && ownsEvent(eventId));
       allow create, update: if isArtistUser()
         && safeId(eventId)
         && safeFile(file)
@@ -87,6 +95,12 @@ service firebase.storage {
         && request.resource.size < 2 * 1024 * 1024
         && request.resource.contentType.matches('image/(jpeg|png|webp)');
       allow delete: if signedIn() && request.auth.uid == userId;
+    }
+
+    // Generated link-preview cards. Clients can read them and cannot write them.
+    match /og/{path=**} {
+      allow read: if true;
+      allow write: if false;
     }
 
     match /{object=**} {
