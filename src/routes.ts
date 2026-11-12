@@ -9,6 +9,7 @@ export type Route =
   | { name: "event-edit"; id: string | null }
   | { name: "share"; artistSlug: string; eventSlug: string | null; trackSlug: string | null }
   | { name: "invite"; code: string }
+  | { name: "signin" }
   | { name: "missing" };
 
 export function currentPath(): string {
@@ -28,6 +29,7 @@ function slugPart(value: string): string | null {
 export function parseRoute(path: string): Route {
   if (path === "/" || path === "") return { name: "home" };
   if (path === "/settings") return { name: "settings" };
+  if (path === "/signin") return { name: "signin" };
   if (path === "/events/new") return { name: "event-edit", id: null };
   const artistEdit = /^\/artist\/([^/]+)\/edit$/.exec(path);
   if (artistEdit) return { name: "artist-edit", id: decodeURIComponent(artistEdit[1]) };
@@ -56,4 +58,25 @@ export function parseRoute(path: string): Route {
     if (eventSlug && eventSlug !== "t") return { name: "share", artistSlug, eventSlug, trackSlug: null };
   }
   return { name: "missing" };
+}
+
+/** A same-app path to send someone back to. Empty when the value is not safe. */
+export function safeReturnPath(raw: string | null | undefined): string {
+  if (!raw) return "";
+  const value = raw.trim();
+  if (!value.startsWith("/") || value.startsWith("//") || value.includes("\\") || value.includes("://")) return "";
+  const pathname = value.split("?")[0].split("#")[0];
+  if (!pathname || pathname === "/signin" || pathname.startsWith("/signin/")) return "";
+  if (pathname.length > 240) return "";
+  return value.slice(0, 300);
+}
+
+export function returnPathFromSearch(search: string): string {
+  const params = new URLSearchParams(search.startsWith("?") ? search.slice(1) : search);
+  return safeReturnPath(params.get("return") || params.get("next") || "");
+}
+
+export function inviteCodeFromPath(path: string): string {
+  const match = /^\/i\/([^/?#]+)/.exec(path.split("?")[0]);
+  return match && isInviteCode(match[1]) ? match[1] : "";
 }

@@ -1,5 +1,5 @@
 import { FirebaseError } from "firebase/app";
-import { onAuthStateChanged, signInWithCustomToken, signOut } from "firebase/auth";
+import { onAuthStateChanged, signInWithCustomToken, signOut, type Auth } from "firebase/auth";
 import { doc, getDoc, serverTimestamp, updateDoc } from "firebase/firestore";
 import { httpsCallable, FunctionsError } from "firebase/functions";
 import { getDownloadURL, ref, uploadBytes } from "firebase/storage";
@@ -26,6 +26,19 @@ const REASONS: Record<string, string> = {
   "same-email": "That's already your email.",
   "email-taken": "That email is already on another account.",
 };
+
+export function authFailure(error: unknown): { message: string; reason: string; retryAfterSeconds: number } {
+  let reason = "";
+  let retryAfterSeconds = 0;
+  if (error instanceof FunctionsError && error.details && typeof error.details === "object") {
+    const details = error.details as { reason?: unknown; retryAfterSeconds?: unknown };
+    if (details.reason) reason = String(details.reason);
+    const retry = Number(details.retryAfterSeconds);
+    if (Number.isFinite(retry) && retry > 0) retryAfterSeconds = Math.ceil(retry);
+  }
+  if (!reason && error instanceof FunctionsError && error.code === "functions/resource-exhausted") reason = "too-soon";
+  return { message: explain(error), reason, retryAfterSeconds };
+}
 
 export function explain(error: unknown): string {
   if (error instanceof FunctionsError) {
@@ -54,14 +67,9 @@ export function watchSession(onChange: (session: Session) => void): () => void {
         onChange({ status: "signed-out" });
         return;
       }
-      void getDoc(doc(db, "users", user.uid))
-        .then((snap) => {
-          onChange({
-            status: "signed-in",
-            uid: user.uid,
-            email: user.email ?? "",
-            profile: snap.exists() ? readProfile(snap.data()) : null,
-          });
+      void loadProfile(db, user.uid)
+        .then((profile) => {
+          onChange({ status: "signed-in", uid: user.uid, email: user.email ?? "", profile });
         })
         .catch(() => {
           onChange({ status: "signed-in", uid: user.uid, email: user.email ?? "", profile: null });
@@ -74,6 +82,42 @@ export function watchSession(onChange: (session: Session) => void): () => void {
     cancelled = true;
     stop();
   };
+}
+
+async function loadProfile(db: Awaited<ReturnType<typeof client>>["db"], uid: string): Promise<Profile | null> {
+  let last: unknown;
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    try {
+      const snap = await getDoc(doc(db, "users", uid));
+      return snap.exists() ? readProfile(snap.data()) : null;
+    } catch (error) {
+      last = error;
+      await new Promise((resolve) => setTimeout(resolve, 150 * (attempt + 1)));
+    }
+  }
+  throw last;
+}
+
+async function settleSignIn(auth: Auth, uid: string): Promise<void> {
+  if (typeof auth.authStateReady === "function") await auth.authStateReady();
+  if (auth.currentUser?.uid === uid) {
+    await auth.currentUser.getIdToken();
+    return;
+  }
+  await new Promise<void>((resolve, reject) => {
+    const timer = window.setTimeout(() => {
+      stop();
+      reject(new Error("Could not finish signing you in."));
+    }, 8000);
+    const stop = onAuthStateChanged(auth, (user) => {
+      if (user?.uid !== uid) return;
+      window.clearTimeout(timer);
+      stop();
+      resolve();
+    });
+  });
+  await auth.currentUser?.getIdToken();
+  if (auth.currentUser?.uid !== uid) throw new Error("Could not finish signing you in.");
 }
 
 export async function requestCode(email: string): Promise<void> {
@@ -89,7 +133,8 @@ export async function verifyCode(email: string, code: string): Promise<{ needsPr
   const result = await verify({ email, code, inviteCode: inviteCode || undefined });
   const token = result.data?.token;
   if (typeof token !== "string" || token.length === 0) throw new Error("Could not finish signing you in.");
-  await signInWithCustomToken(auth, token);
+  const credential = await signInWithCustomToken(auth, token);
+  await settleSignIn(auth, credential.user.uid);
   return { needsProfile: result.data.needsProfile === true };
 }
 

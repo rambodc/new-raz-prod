@@ -22,9 +22,10 @@ const DUMMY_SALT = "razzberry-login-timing";
 const DUMMY_HASH = scryptSync("000000", DUMMY_SALT, 32, SCRYPT).toString("hex");
 
 export class LoginError extends Error {
-  constructor(reason, message) {
+  constructor(reason, message, retryAfterSeconds = 0) {
     super(message ?? reason);
     this.reason = reason;
+    this.retryAfterSeconds = Number(retryAfterSeconds) || 0;
   }
 }
 
@@ -195,9 +196,12 @@ export async function issueLoginCode({ db, email, ip, now, sendEmail, limits = D
     const ipRef = db.doc(`authRateLimits/ip_${ipKey}`);
     const [emailSnap, ipSnap] = await Promise.all([tx.get(emailRef), tx.get(ipRef)]);
     const emailNext = nextRateState(emailSnap.exists ? emailSnap.data() : null, now, { max: limits.emailMax, minIntervalMs: limits.minIntervalMs });
-    if (!emailNext.ok) throw new LoginError(emailNext.reason, "Please wait before requesting another code.");
+    if (!emailNext.ok) {
+      const message = emailNext.reason === "rate-limited" ? "Too many codes were requested. Try again later." : "Please wait before requesting another code.";
+      throw new LoginError(emailNext.reason, message, emailNext.retryAfterSeconds);
+    }
     const ipNext = nextRateState(ipSnap.exists ? ipSnap.data() : null, now, { max: limits.ipMax, minIntervalMs: 0 });
-    if (!ipNext.ok) throw new LoginError("rate-limited", "Too many codes were requested. Try again later.");
+    if (!ipNext.ok) throw new LoginError("rate-limited", "Too many codes were requested. Try again later.", ipNext.retryAfterSeconds);
     tx.set(emailRef, emailNext.state);
     tx.set(ipRef, ipNext.state);
     tx.set(db.doc(`loginCodes/${emailKey}`), {
@@ -222,10 +226,29 @@ export async function issueLoginCode({ db, email, ip, now, sendEmail, limits = D
     } catch {
       // The hash expires on its own. A later send overwrites it.
     }
+    try {
+      await releaseRateLimit(db, emailKey, ipKey);
+    } catch {
+      // A failed release still leaves the hourly cap. The person can try again after the gap.
+    }
     console.error("login email failed", redact(sent.error.message));
     throw new LoginError("send-failed", "Could not send the email.");
   }
   return { ok: true };
+}
+
+async function releaseRateLimit(db, emailKey, ipKey) {
+  await db.runTransaction(async (tx) => {
+    for (const path of [`authRateLimits/email_${emailKey}`, `authRateLimits/ip_${ipKey}`]) {
+      const ref = db.doc(path);
+      const snap = await tx.get(ref);
+      if (!snap.exists) continue;
+      const data = snap.data() || {};
+      const count = (Number(data.count) || 0) - 1;
+      if (count <= 0) tx.delete(ref);
+      else tx.set(ref, { windowStart: data.windowStart, count, lastSentAt: 0 });
+    }
+  });
 }
 
 /**
@@ -240,6 +263,7 @@ export async function acceptLoginCode({ db, auth, email, code, now, timestampOf,
   const emailKey = sha256(normalized);
   const ref = db.doc(`loginCodes/${emailKey}`);
   let outcome = { error: "wrong-code" };
+  let claimed = null;
 
   await db.runTransaction(async (tx) => {
     const snap = await tx.get(ref);
@@ -254,31 +278,50 @@ export async function acceptLoginCode({ db, auth, email, code, now, timestampOf,
       outcome = { error: "expired" };
       return;
     }
-    if (Number(data.attempts) >= MAX_ATTEMPTS) {
+    const attempts = Number(data.attempts) || 0;
+    if (attempts >= MAX_ATTEMPTS) {
       outcome = { error: "too-many-attempts" };
       return;
     }
     if (!codesMatch(digits, data.salt, data.codeHash)) {
-      tx.update(ref, { attempts: Number(data.attempts) + 1 });
+      tx.update(ref, { attempts: attempts + 1 });
       outcome = { error: "wrong-code" };
       return;
     }
+    claimed = {
+      email: typeof data.email === "string" ? data.email : normalized,
+      codeHash: data.codeHash,
+      salt: data.salt,
+      attempts,
+      expiresAt: data.expiresAt,
+      codeId: typeof data.codeId === "string" ? data.codeId : "",
+    };
     tx.delete(ref);
-    outcome = { email: typeof data.email === "string" ? data.email : normalized };
+    outcome = { email: claimed.email };
   });
 
   if (outcome.error === "expired") throw new LoginError("expired", "That code has expired. Send a new one.");
   if (outcome.error === "too-many-attempts") throw new LoginError("too-many-attempts", "Too many tries. Send a new code.");
   if (outcome.error) throw new LoginError("wrong-code", "That code is incorrect.");
 
-  const user = await findOrCreateUser(auth, outcome.email);
-  const canonical = user.email || outcome.email;
-  const profile = await ensureProfile(db, user.uid, canonical, now, timestampOf);
-  if (profile.created) await attributeNewUser(db, user.uid, inviteCode, now);
   let token;
+  let needsProfile = false;
   try {
+    const user = await findOrCreateUser(auth, outcome.email);
+    const canonical = user.email || outcome.email;
+    const profile = await ensureProfile(db, user.uid, canonical, now, timestampOf);
+    if (profile.created) await attributeNewUser(db, user.uid, inviteCode, now);
+    needsProfile = profile.needsProfile;
     token = await auth.createCustomToken(user.uid);
   } catch (error) {
+    if (claimed) {
+      try {
+        await ref.set(claimed);
+      } catch {
+        // The code was already consumed. They can request another after the gap.
+      }
+    }
+    if (error instanceof LoginError) throw error;
     const message = String(error?.message || "");
     const codeName = String(error?.code || "");
     if (codeName === "auth/insufficient-permission" || message.includes("signBlob")) {
@@ -290,7 +333,7 @@ export async function acceptLoginCode({ db, auth, email, code, now, timestampOf,
     }
     throw new LoginError("token-failed", "Could not finish signing you in.");
   }
-  return { token, needsProfile: profile.needsProfile };
+  return { token, needsProfile };
 }
 
 async function ensureProfile(db, uid, email, now, timestampOf) {

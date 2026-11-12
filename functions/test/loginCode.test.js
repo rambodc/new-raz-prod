@@ -166,10 +166,23 @@ test("issuing a code stores only a hash and emails the code once", async () => {
 test("the same email cannot request another code inside the gap, and a failed send removes the hash", async () => {
   const { db, deps } = harness();
   await issueLoginCode({ ...deps, email: "ada@example.com", ip: "203.0.113.4" });
-  await assert.rejects(issueLoginCode({ ...deps, email: "ada@example.com", ip: "203.0.113.9", now: deps.now + 1000 }), (error) => error instanceof LoginError && error.reason === "too-soon");
+  await assert.rejects(
+    issueLoginCode({ ...deps, email: "ada@example.com", ip: "203.0.113.9", now: deps.now + 1000 }),
+    (error) => error instanceof LoginError && error.reason === "too-soon" && error.retryAfterSeconds >= 1 && error.retryAfterSeconds <= 60,
+  );
   const failing = harness({ sendResult: { error: { message: "nope" } }, newCode: () => "111111" });
   await assert.rejects(issueLoginCode({ ...failing.deps, email: "bea@example.com", ip: "203.0.113.8" }), (error) => error.reason === "send-failed");
   assert.equal(failing.db.store.has(`loginCodes/${sha256("bea@example.com")}`), false);
+  const retried = await issueLoginCode({
+    ...failing.deps,
+    email: "bea@example.com",
+    ip: "203.0.113.8",
+    now: failing.deps.now + 1000,
+    sendEmail: async () => ({ data: { id: "email-2" } }),
+    newCode: () => "222222",
+    newId: () => "retry",
+  });
+  assert.equal(retried.ok, true);
   assert.equal(db.store.has(`loginCodes/${sha256("ada@example.com")}`), true);
 });
 
@@ -317,6 +330,7 @@ test("a missing signBlob permission is reported as a token failure and does not 
     acceptLoginCode({ db, auth, email: "ada@example.com", code: "482017", now: deps.now + 1000, timestampOf: ts }),
     (error) => error instanceof LoginError && error.reason === "token-failed",
   );
+  assert.equal(db.store.has(`loginCodes/${sha256("ada@example.com")}`), true);
 });
 
 test("the emulator file sink stays off unless the functions emulator set the flag", () => {

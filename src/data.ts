@@ -5,7 +5,7 @@ import { AUDIO_LIMIT, audioKind } from "./audio";
 import { client, storageObjectUrl } from "./firebase";
 import type { Role } from "./profile";
 import type { Route } from "./routes";
-import { resizeImage, type ImageCrop } from "./resizeImage";
+import { ARTIST_EVENT_PHOTO, resizeImage, type ImageCrop } from "./resizeImage";
 import { artistPath, eventPath, isSlug, slugCandidates } from "./slug";
 
 export type Visibility = "public" | "private";
@@ -117,8 +117,7 @@ export function canonicalFor(route: Route, page: ArtistPageData): string | null 
   return null;
 }
 
-const HERO = { maxEdge: 2000, maxBytes: 3_600_000, quality: 0.9 };
-const ARTIST_PHOTO = { maxEdge: 2400, maxBytes: 3_600_000, quality: 0.92 };
+const HERO = ARTIST_EVENT_PHOTO;
 
 function asString(value: unknown): string {
   return typeof value === "string" ? value : "";
@@ -370,7 +369,7 @@ async function putImage(path: string, file: File, options: { maxEdge: number; ma
 }
 
 export async function saveArtist(uid: string, input: { name: string; bio: string; imageURL: string }, file: File | null, crop?: ImageCrop | null): Promise<void> {
-  const imageURL = file ? await putImage(`artists/${uid}/cover.jpg`, file, crop ? { ...ARTIST_PHOTO, crop } : HERO) : input.imageURL;
+  const imageURL = file ? await putImage(`artists/${uid}/cover.jpg`, file, crop ? { ...HERO, crop } : HERO) : input.imageURL;
   const { db } = await client();
   await updateDoc(doc(db, "artists", uid), {
     name: input.name,

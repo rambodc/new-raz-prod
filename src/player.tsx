@@ -340,7 +340,7 @@ export function MiniPlayer({ onOpen }: { onOpen?: (artistId: string, trackId: st
               document.getElementById(`track-${track.id}`)?.scrollIntoView({ behavior: reduce ? "auto" : "smooth", block: "center" });
             }}
           >
-            {cover ? <img className="mini-art" src={cover} alt="" /> : <span className="mini-art" aria-hidden="true">{track.title.slice(0, 1).toUpperCase()}</span>}
+            {cover ? <img className="mini-art" src={cover} alt="" width={42} height={42} decoding="async" loading="lazy" /> : <span className="mini-art" aria-hidden="true">{track.title.slice(0, 1).toUpperCase()}</span>}
             <span className="mini-copy">
               <strong>{track.title}</strong>
               <span className="mini-artist">{artistName}</span>

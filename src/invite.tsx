@@ -113,7 +113,7 @@ function Face({ guest }: { guest: GuestFace }) {
   const letter = guest.name.trim().charAt(0).toUpperCase() || "?";
   return (
     <span className="guest">
-      {guest.photoURL ? <img src={guest.photoURL} alt="" /> : <span className="guest-letter">{letter}</span>}
+      {guest.photoURL ? <img src={guest.photoURL} alt="" width={36} height={36} decoding="async" loading="lazy" /> : <span className="guest-letter">{letter}</span>}
       <span>{guest.name}</span>
     </span>
   );
@@ -417,7 +417,7 @@ export function InvitePage({
           <article className="night is-open">
             {event.imageURL ? (
               <div className="night-photo-wrap">
-                <img className="night-photo" src={coverSrc(event.imageURL)} alt="" />
+                <img className="night-photo" src={coverSrc(event.imageURL)} alt="" width={1200} height={675} decoding="async" fetchPriority="high" />
               </div>
             ) : null}
             <div className="night-detail">

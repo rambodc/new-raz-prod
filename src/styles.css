@@ -344,12 +344,43 @@ img { max-width: 100%; display: block; }
 }
 
 .code-boxes input {
-  height: 52px;
+  height: 56px;
   padding: 0;
+  border-color: rgba(255, 255, 255, 0.28);
+  background: #221e22;
   text-align: center;
   font-size: 22px;
   font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  caret-color: var(--pink);
+  transition: border-color 0.2s ease, box-shadow 0.2s ease;
 }
+
+.code-boxes input:focus,
+.code-boxes input:focus-visible {
+  outline: none;
+  border-color: rgba(255, 255, 255, 0.85);
+  box-shadow: 0 0 0 3px rgba(216, 30, 91, 0.28);
+}
+
+.signin-copy strong { color: #fff; font-weight: 600; }
+
+.signin-note {
+  margin: 12px 0 0;
+  color: rgba(255, 255, 255, 0.72);
+  font-size: 14px;
+  line-height: 1.4;
+}
+
+.signin-actions {
+  display: grid;
+  gap: 2px;
+  margin-top: 6px;
+}
+
+.signin-actions .text-button { margin-top: 0; }
+
+.code-step { animation: signin-in 0.28s ease; }
 
 .name-card { padding-top: 22px; }
 
@@ -1869,14 +1900,26 @@ img { max-width: 100%; display: block; }
 }
 
 .signin-sheet {
+  position: relative;
   width: min(440px, 100%);
   margin: auto;
   flex: 0 0 auto;
-  padding: 18px 18px 20px;
+  padding: 22px 18px 20px;
   border-radius: 22px;
-  background: rgba(16, 14, 16, 0.96);
+  background: #141214;
   box-shadow: 0 24px 60px rgba(0, 0, 0, 0.5);
+  overflow: hidden;
   animation: signin-in 0.32s ease;
+}
+
+.signin-sheet::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 3px;
+  background: var(--pink);
 }
 
 .signin-head {
@@ -2716,6 +2759,8 @@ span.mini-art {
   .mini *,
   .signin-layer,
   .signin-sheet,
+  .code-step,
+  .code-boxes input,
   .when-layer,
   .when-card {
     animation: none !important;

@@ -154,8 +154,8 @@ function StageBackdrop({ image, reduced }: { image: string; reduced: boolean }) 
     <div className="stage-bg" aria-hidden="true">
       {image ? (
         <>
-          <img ref={sharpRef} className="stage-bg-sharp" src={image} alt="" decoding="async" />
-          {!wide ? <img ref={blurRef} className="stage-bg-blur" src={image} alt="" decoding="async" /> : null}
+          <img ref={sharpRef} className="stage-bg-sharp" src={image} alt="" width={900} height={1600} decoding="async" fetchPriority="high" />
+          {!wide ? <img ref={blurRef} className="stage-bg-blur" src={image} alt="" width={900} height={1600} decoding="async" fetchPriority="low" /> : null}
         </>
       ) : (
         <div className="stage-bg-fallback" />
@@ -806,7 +806,7 @@ function EventCard({
         onClick={() => replace(open ? artistUrl : eventUrl)}
       >
         <span className="night-thumb">
-          <Cover url={event.imageURL} alt="" />
+          <Cover url={event.imageURL} alt="" width={76} height={76} />
         </span>
         <span className="night-copy">
           <span className="night-title">
@@ -824,7 +824,7 @@ function EventCard({
         <div className="night-detail">
           {event.imageURL ? (
             <div className="night-photo-wrap">
-              <img className="night-photo" src={event.imageURL} alt="" />
+              <img className="night-photo" src={event.imageURL} alt="" width={1200} height={675} decoding="async" loading="lazy" />
             </div>
           ) : null}
           <p className="night-detail-when">{formatWhen(event.startsAt, "detail")}</p>

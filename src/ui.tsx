@@ -20,7 +20,7 @@ export function Scene({ variant, children }: { variant: "auth" | "home"; childre
       <picture className="scene-photo">
         {/* Unsplash photo-1540039155733-5bb30b53aa14, Unsplash License. Color graded for the stage lights. */}
         <source srcSet="/concert.webp" type="image/webp" />
-        <img src="/concert.jpg" alt="" />
+        <img src="/concert.jpg" alt="" width={1600} height={1067} decoding="async" fetchPriority="high" />
       </picture>
       <div className="scene-shade" />
       <div className={variant === "home" ? "frame is-spread" : "frame"}>{children}</div>
@@ -89,14 +89,14 @@ export function CameraIcon() {
   );
 }
 
-export function Avatar({ name, url, version, alt }: { name: string; url: string; version: number; alt: string }) {
+export function Avatar({ name, url, version, alt, lazy = false }: { name: string; url: string; version: number; alt: string; lazy?: boolean }) {
   const letter = name.trim().charAt(0).toUpperCase() || "R";
   if (!url) return <span className="avatar-fallback">{letter}</span>;
   const src = version > 0 ? `${url}${url.includes("?") ? "&" : "?"}v=${version}` : url;
-  return <img src={src} alt={alt} />;
+  return <img src={src} alt={alt} width={128} height={128} decoding="async" loading={lazy ? "lazy" : undefined} />;
 }
 
-export function Cover({ url, alt }: { url: string; alt: string }) {
+export function Cover({ url, alt, width, height, priority = false }: { url: string; alt: string; width: number; height: number; priority?: boolean }) {
   if (!url) {
     return (
       <span className="cover-fallback">
@@ -104,7 +104,17 @@ export function Cover({ url, alt }: { url: string; alt: string }) {
       </span>
     );
   }
-  return <img src={url} alt={alt} />;
+  return (
+    <img
+      src={url}
+      alt={alt}
+      width={width}
+      height={height}
+      decoding="async"
+      loading={priority ? undefined : "lazy"}
+      fetchPriority={priority ? "high" : undefined}
+    />
+  );
 }
 
 export function Field({ label, ...props }: { label: string } & InputHTMLAttributes<HTMLInputElement>) {
@@ -200,7 +210,7 @@ export function EventList({
       {events.map((event) => (
         <li key={event.id}>
           <a className="event-card" href={`/event/${event.id}`} onClick={(click) => openLink(click, go)}>
-            <Cover url={event.imageURL} alt="" />
+            <Cover url={event.imageURL} alt="" width={84} height={84} />
             <span className="event-copy">
               <span className="event-title">{event.title}</span>
               <span className="event-when">{formatWhen(event.startsAt, "card")}</span>
