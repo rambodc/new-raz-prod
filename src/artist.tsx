@@ -113,22 +113,6 @@ function StageBackdrop({ image, reduced }: { image: string; reduced: boolean }) 
   const blurRef = useRef<HTMLImageElement>(null);
   const dimRef = useRef<HTMLDivElement>(null);
   const wide = useWideStage();
-  const [blurSrc, setBlurSrc] = useState("");
-
-  useEffect(() => {
-    if (!image || wide) return;
-    let cancelled = false;
-    let url = "";
-    void precomputeBlur(image).then((next) => {
-      if (cancelled || !next) return;
-      url = next;
-      setBlurSrc(next);
-    });
-    return () => {
-      cancelled = true;
-      if (url.startsWith("blob:")) URL.revokeObjectURL(url);
-    };
-  }, [image, wide]);
 
   useEffect(() => {
     const sharp = sharpRef.current;
@@ -164,14 +148,14 @@ function StageBackdrop({ image, reduced }: { image: string; reduced: boolean }) 
       cancelAnimationFrame(frame);
       window.removeEventListener("scroll", onScroll);
     };
-  }, [reduced, image, wide, blurSrc]);
+  }, [reduced, image, wide]);
 
   return (
     <div className="stage-bg" aria-hidden="true">
       {image ? (
         <>
           <img ref={sharpRef} className="stage-bg-sharp" src={image} alt="" decoding="async" />
-          {blurSrc && !wide ? <img ref={blurRef} className="stage-bg-blur" src={blurSrc} alt="" decoding="async" /> : null}
+          {!wide ? <img ref={blurRef} className="stage-bg-blur" src={image} alt="" decoding="async" /> : null}
         </>
       ) : (
         <div className="stage-bg-fallback" />
@@ -180,38 +164,6 @@ function StageBackdrop({ image, reduced }: { image: string; reduced: boolean }) 
       <div ref={dimRef} className="stage-bg-dim" />
     </div>
   );
-}
-
-function precomputeBlur(src: string): Promise<string | null> {
-  return new Promise((resolve) => {
-    const img = new Image();
-    img.decoding = "async";
-    img.crossOrigin = "anonymous";
-    img.onload = () => {
-      try {
-        const canvas = document.createElement("canvas");
-        const longest = 72;
-        const scale = Math.min(1, longest / Math.max(img.naturalWidth, img.naturalHeight));
-        const width = Math.max(1, Math.round(img.naturalWidth * scale));
-        const height = Math.max(1, Math.round(img.naturalHeight * scale));
-        canvas.width = width;
-        canvas.height = height;
-        const context = canvas.getContext("2d", { alpha: false });
-        if (!context) {
-          resolve(null);
-          return;
-        }
-        const blur = 8;
-        context.filter = `blur(${blur}px)`;
-        context.drawImage(img, -blur, -blur, width + blur * 2, height + blur * 2);
-        canvas.toBlob((blob) => resolve(blob ? URL.createObjectURL(blob) : null), "image/jpeg", 0.72);
-      } catch {
-        resolve(null);
-      }
-    };
-    img.onerror = () => resolve(null);
-    img.src = src;
-  });
 }
 
 function PencilIcon() {
