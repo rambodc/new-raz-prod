@@ -7,7 +7,7 @@ import { MiniPlayer, Playback } from "./player";
 import { cleanEmail, cleanName, validEmail, validName, type Profile } from "./profile";
 import { currentPath, parseRoute, type Route } from "./routes";
 import { confirmEmailChange, explain, requestEmailChange, saveProfile, signOutUser, uploadAvatar, watchSession, type Session } from "./services";
-import { SignInSheet } from "./signin";
+import { clearReturnPath, readPendingSignIn, rememberReturnPath, SignInSheet, signInDestination } from "./signin";
 import { Avatar, BackIcon, Boot, BrandLockup, CameraIcon, Field, Scene, SignInButton, TopBar, keepVisible } from "./ui";
 
 const GUEST: Profile = { firstName: "", lastName: "", email: "", photoURL: "", role: "fan" };
@@ -20,7 +20,8 @@ export default function App() {
   const [session, setSession] = useState<Session>(import.meta.env.MODE === "test" ? { status: "signed-out" } : { status: "loading" });
   const [path, setPath] = useState(currentPath);
   const [photoVersion, setPhotoVersion] = useState(0);
-  const [authOpen, setAuthOpen] = useState(false);
+  const [authOpen, setAuthOpen] = useState(() => parseRoute(currentPath()).name === "signin" || readPendingSignIn() !== null);
+  const openedPending = useRef(false);
   const historyStack = useRef<string[]>([currentPath()]);
 
   useEffect(() => {
@@ -55,12 +56,33 @@ export default function App() {
   }, []);
 
   useEffect(() => {
-    if (session.status === "signed-in") setAuthOpen(false);
-  }, [session.status]);
+    if (session.status !== "signed-in") return;
+    setAuthOpen(false);
+    if (parseRoute(path).name !== "signin") return;
+    const dest = signInDestination(window.location.search);
+    clearReturnPath();
+    replace(dest);
+  }, [session.status, path]);
 
   useEffect(() => {
     if (session.status !== "signed-out") return;
-    if (needsAccount(parseRoute(path))) setAuthOpen(true);
+    const routeName = parseRoute(path).name;
+    if (routeName === "signin") {
+      openedPending.current = true;
+      rememberReturnPath(signInDestination(window.location.search));
+      setAuthOpen(true);
+      return;
+    }
+    if (needsAccount(parseRoute(path))) {
+      rememberReturnPath(path);
+      setAuthOpen(true);
+      return;
+    }
+    if (!openedPending.current && readPendingSignIn()) {
+      openedPending.current = true;
+      rememberReturnPath(path);
+      setAuthOpen(true);
+    }
   }, [session.status, path]);
 
   function go(next: string) {
@@ -107,12 +129,30 @@ export default function App() {
 
   function closeAuth() {
     setAuthOpen(false);
-    if (session.status !== "signed-in") clearPendingRsvp();
     if (session.status === "signed-in") return;
     const current = parseRoute(path);
+    if (current.name === "signin") {
+      const dest = signInDestination(window.location.search);
+      clearReturnPath();
+      replace(dest);
+      return;
+    }
+    clearPendingRsvp();
     if (current.name === "artist-edit") replace(`/artist/${current.id}`);
     else if (current.name === "event-edit" && current.id) replace(`/event/${current.id}`);
     else if (current.name === "settings" || current.name === "event-edit") replace("/");
+  }
+
+  function openSignIn() {
+    rememberReturnPath(parseRoute(path).name === "signin" ? signInDestination(window.location.search) : path);
+    setAuthOpen(true);
+  }
+
+  function finishSignIn() {
+    if (parseRoute(path).name !== "signin") return;
+    const dest = signInDestination(window.location.search);
+    clearReturnPath();
+    replace(dest);
   }
 
   if (session.status === "loading") return <Boot />;
@@ -121,8 +161,6 @@ export default function App() {
   const needsName = signedIn !== null && !signedIn.profile?.firstName;
   const route = parseRoute(path);
   const profile = signedIn?.profile?.firstName ? signedIn.profile : null;
-  const openSignIn = () => setAuthOpen(true);
-
   let body;
   if (needsName && signedIn) {
     body = (
@@ -158,6 +196,18 @@ export default function App() {
         }}
         onSignedOut={() => go("/")}
       />
+    );
+  } else if (route.name === "signin") {
+    body = (
+      <Scene variant="auth">
+        <TopBar onHome={goHome} avatar={<SignInButton onClick={openSignIn} />} />
+        <div className="home-column">
+          <div className="empty">
+            <strong>Sign in</strong>
+            <p>We'll email you a 6-digit code.</p>
+          </div>
+        </div>
+      </Scene>
     );
   } else if (route.name === "home" || (!signedIn && (route.name === "settings" || (route.name === "event-edit" && route.id === null)))) {
     body = (
@@ -227,7 +277,7 @@ export default function App() {
           }}
         />
       )}
-      {authOpen && !signedIn ? <SignInSheet onClose={closeAuth} onVerified={() => undefined} /> : null}
+      {authOpen && !signedIn ? <SignInSheet onClose={closeAuth} onVerified={finishSignIn} /> : null}
     </Playback>
   );
 }

@@ -186,7 +186,9 @@ function toLoginHttpsError(error) {
     "token-failed": ["internal", "Could not finish signing you in."],
   };
   const [code, message] = messages[error.reason] ?? ["internal", "Something went wrong. Try again."];
-  return new HttpsError(code, message, { reason: error.reason });
+  const details = { reason: error.reason };
+  if (error.retryAfterSeconds > 0) details.retryAfterSeconds = error.retryAfterSeconds;
+  return new HttpsError(code, message, details);
 }
 
 /** Emails a 6-digit sign-in code. The Resend key is the secret RESEND_API_KEY and is never returned. */

@@ -99,7 +99,7 @@ function HomeBody({
           <section className="mine">
             <p>Your artist page</p>
             <a href={artistHref(home.artist)} onClick={openMine}>
-              <Cover url={home.artist.imageURL} alt="" />
+              <Cover url={home.artist.imageURL} alt="" width={1200} height={675} />
               <span className="mine-shade" />
               <span className="mine-name">{home.artist.name}</span>
               <Chevron />
@@ -119,7 +119,7 @@ function ArtistGrid({ artists, go }: { artists: Artist[]; go: (path: string) => 
       {artists.map((artist) => (
         <li key={artist.id}>
           <a className="artist-card" href={artistHref(artist)} onClick={(click) => openLink(click, go)}>
-            <Cover url={artist.imageURL} alt="" />
+            <Cover url={artist.imageURL} alt="" width={600} height={800} />
             <span className="artist-card-shade" aria-hidden="true" />
             <span className="artist-card-name">{artist.name}</span>
           </a>

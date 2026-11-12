@@ -4,7 +4,7 @@ import { CropPhoto } from "./crop";
 import { publishEvent, publishTrack, saveArtist, saveEvent, type Artist, type EventItem } from "./data";
 import { cleanBlock, cleanLine, cleanTicketUrl, combineLocal, dateInputValue, formatDuration, timeInputValue, validBlock, validLine, validTicketUrl } from "./format";
 import { WhenFields } from "./when";
-import { PHOTO_QUALITY_HINT, assertPhotoQuality, type ImageCrop } from "./resizeImage";
+import { assertPhotoQuality, type ImageCrop } from "./resizeImage";
 import { explain } from "./services";
 import { Field, TextArea } from "./ui";
 
@@ -102,7 +102,6 @@ export function ArtistForm({ artist, onClose, onSaved }: { artist: Artist; onClo
         <button type="button" className="stage-quiet" disabled={busy} onClick={() => photoRef.current?.click()}>
           {file || preview ? "Change photo" : "Add photo"}
         </button>
-        {!file ? <p className="photo-hint">{PHOTO_QUALITY_HINT}</p> : null}
         <input
           ref={photoRef}
           className="file"
@@ -111,19 +110,10 @@ export function ArtistForm({ artist, onClose, onSaved }: { artist: Artist; onClo
           onChange={(change) => {
             const next = change.target.files?.[0] ?? null;
             change.target.value = "";
-            void acceptPhoto(next, 1200)
-              .then((picked) => {
-                setError("");
-                cropRef.current = null;
-                setFile(picked);
-                if (!picked) setPreview(artist.imageURL);
-              })
-              .catch((caught: unknown) => {
-                setFile(null);
-                cropRef.current = null;
-                setPreview(artist.imageURL);
-                setError(explain(caught));
-              });
+            setError("");
+            cropRef.current = null;
+            setFile(next);
+            if (!next) setPreview(artist.imageURL);
           }}
         />
       </div>
@@ -234,19 +224,10 @@ export function EventForm({
         preview={preview}
         empty="Add a photo"
         busy={busy}
-        hint={PHOTO_QUALITY_HINT}
         onFile={(next) => {
-          void acceptPhoto(next, 1200)
-            .then((picked) => {
-              setError("");
-              setFile(picked);
-              if (!picked) setPreview(event?.imageURL ?? "");
-            })
-            .catch((caught: unknown) => {
-              setFile(null);
-              setPreview(event?.imageURL ?? "");
-              setError(explain(caught));
-            });
+          setError("");
+          setFile(next);
+          if (!next) setPreview(event?.imageURL ?? "");
         }}
       />
       <div className="stage-fields">

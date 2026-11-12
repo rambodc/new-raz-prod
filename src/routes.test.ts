@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { parseRoute } from "./routes";
+import { parseRoute, safeReturnPath } from "./routes";
 
 describe("routes", () => {
   it("keeps the app routes and reads public share links", () => {
@@ -15,6 +15,10 @@ describe("routes", () => {
     expect(parseRoute("/ada-vale/t/midnight")).toEqual({ name: "share", artistSlug: "ada-vale", eventSlug: null, trackSlug: "midnight" });
     expect(parseRoute("/i/abcdefghjk")).toEqual({ name: "invite", code: "abcdefghjk" });
     expect(parseRoute("/i/nope")).toEqual({ name: "missing" });
+    expect(parseRoute("/signin")).toEqual({ name: "signin" });
+    expect(safeReturnPath("/i/abcdefghjk")).toBe("/i/abcdefghjk");
+    expect(safeReturnPath("/signin?return=/")).toBe("");
+    expect(safeReturnPath("//evil.example")).toBe("");
     expect(parseRoute("/login")).toEqual({ name: "missing" });
     expect(parseRoute("/nope/nope/nope")).toEqual({ name: "missing" });
   });
