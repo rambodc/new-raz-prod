@@ -76,7 +76,8 @@ function HomeBody({
   function openMine(event: MouseEvent<HTMLAnchorElement>) {
     if (event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
     event.preventDefault();
-    go(artistHref(home.artist ?? { id: uid, slug: "" }));
+    if (!home.artist) return;
+    go(artistHref(home.artist));
   }
 
   const artists = artist ? home.artists.filter((item) => item.id !== uid) : home.artists;

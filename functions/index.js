@@ -10,7 +10,7 @@ import { defineSecret } from "firebase-functions/params";
 import { acceptLoginCode, emulatorSinkEnabled, issueLoginCode, LoginError, sendWithResend } from "./lib/loginCode.js";
 import { confirmEmailChange as applyEmailChange, EmailChangeError, requestEmailChange as issueEmailChange } from "./lib/emailChange.js";
 import { applyUserRole, RoleError } from "./lib/roles.js";
-import { CheckInError, MAX_IMAGE_BYTES, parseInput, performCheckIn, sniffImageType, validArtistId } from "./lib/checkin.js";
+import { CheckInError, parseInput, performCheckIn } from "./lib/checkin.js";
 import { imageBuckets, IMAGE_MODEL, IMAGE_ROUTE_BUDGET_SEC, handleImageRequest } from "./lib/images.js";
 import { buckets, DEFAULT_MODEL, handleSceneChat } from "./lib/sceneChat.js";
 import { CHAT_ROUTE_BUDGET_SEC, SEARCH_MODEL } from "./lib/webSearch.js";
@@ -21,7 +21,7 @@ const options = { region: "us-central1", maxInstances: 10 };
 initializeApp({ storageBucket: BUCKET });
 
 /** Bump when the deployed functions change, so a deploy can be confirmed end to end. */
-export const FUNCTIONS_VERSION = "2026.11.11-share";
+export const FUNCTIONS_VERSION = "2026.11.12-share";
 
 const imageOptions = { region: "us-central1", memory: "1GiB", timeoutSeconds: 60, maxInstances: 5 };
 
@@ -149,32 +149,6 @@ export const checkIn = onCall(options, async (request) => {
   } catch (error) {
     throw toHttpsError(error);
   }
-});
-
-/** Admins only. Saves the one image an artist has (a new upload replaces the old one). */
-export const setArtistImage = onCall({ ...options, memory: "512MiB" }, async (request) => {
-  if (!request.auth) throw new HttpsError("unauthenticated", "Sign in first.");
-  const db = getFirestore();
-  const admin = await db.doc(`admins/${request.auth.uid}`).get();
-  if (!admin.exists) throw new HttpsError("permission-denied", "Admins only.");
-
-  const { artistId, imageBase64 } = request.data ?? {};
-  if (!validArtistId(artistId) || typeof imageBase64 !== "string") throw new HttpsError("invalid-argument", "Missing artist or image.");
-  const bytes = Buffer.from(imageBase64, "base64");
-  if (bytes.length === 0 || bytes.length > MAX_IMAGE_BYTES) throw new HttpsError("invalid-argument", "The image must be under 5 MB.");
-  const contentType = sniffImageType(bytes);
-  if (!contentType) throw new HttpsError("invalid-argument", "Use a JPG, PNG or WebP image.");
-
-  const artistRef = db.doc(`artists/${artistId}`);
-  if (!(await artistRef.get()).exists) throw new HttpsError("not-found", "That artist was not found.");
-
-  const path = `artists/${artistId}/image`;
-  await getStorage().bucket().file(path).save(bytes, { contentType, resumable: false, metadata: { cacheControl: "public,max-age=3600" } });
-  const imageVersion = Date.now();
-  // The bucket is publicly readable for artist images (see storage.rules), so no download token is needed.
-  const imageUrl = `https://firebasestorage.googleapis.com/v0/b/${BUCKET}/o/${encodeURIComponent(path)}?alt=media&v=${imageVersion}`;
-  await artistRef.update({ imageUrl, imageVersion });
-  return { imageUrl };
 });
 
 function clientIp(request) {
@@ -313,7 +287,7 @@ export const confirmEmailChange = onCall({ ...options, timeoutSeconds: 30, secre
   }
 });
 
-/** Checks the code and returns a Firebase custom token. Old user documents are replaced, not kept. */
+/** Checks the code and returns a Firebase custom token. A profile is created only when this person has none. */
 export const verifyLoginCode = onCall({ ...options, timeoutSeconds: 30, invoker: "public" }, async (request) => {
   try {
     return await acceptLoginCode({

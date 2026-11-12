@@ -8,7 +8,7 @@ export function ogRevision(parts) {
 /** One hash for the trigger and the share function, so they do not rebuild the same card. */
 export function previewRevision(kind, record, artistName = "") {
   if (kind === "event") {
-    return ogRevision(["event", record.slug, record.title, record.imageURL, eventSubtitle(record), record.visibility || "public"]);
+    return ogRevision(["event", record.slug, record.title, record.imageURL, eventSubtitle(record), record.visibility]);
   }
   if (kind === "track") {
     return ogRevision(["track", record.slug, record.title, record.coverURL, artistName]);
@@ -33,8 +33,7 @@ export function clip(text, max) {
 }
 
 export function isPublicEvent(data) {
-  if (!data) return false;
-  return data.visibility == null || data.visibility === "public";
+  return data?.visibility === "public";
 }
 
 export function eventSubtitle(event) {

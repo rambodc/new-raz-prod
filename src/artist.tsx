@@ -516,7 +516,7 @@ function StageView({
 
   const nextOrder = tracks.reduce((max, track) => Math.max(max, track.order), -1) + 1;
   const queue = { artistId: artist.id, artistName: artist.name, artistImage: artist.imageURL, tracks };
-  const pagePath = artist.slug ? artistPath(artist.slug) : `/artist/${artist.id}`;
+  const pagePath = artistPath(artist.slug);
 
   return (
     <div className={focus ? "stage is-focused" : "stage"} data-artist={artist.id}>
@@ -547,7 +547,7 @@ function StageView({
                 <div className="stage-identity-row">
                   <h1>{artist.name}</h1>
                   <div className="stage-actions">
-                    {artist.slug ? <ShareButton title={artist.name} text={clip(artist.bio, 140) || artist.name} path={pagePath} label={`Share ${artist.name}`} /> : null}
+                    <ShareButton title={artist.name} text={clip(artist.bio, 140) || artist.name} path={pagePath} label={`Share ${artist.name}`} />
                     {owner ? (
                       <button type="button" className="icon-btn" aria-label="Edit page" onClick={() => replace(`/artist/${artist.id}/edit`)}>
                         <PencilIcon />
@@ -714,7 +714,7 @@ function StageView({
                               track={track}
                               playing={current && player.playing}
                               owner={owner}
-                              sharePath={artist.slug && track.slug ? trackPath(artist.slug, track.slug) : ""}
+                              sharePath={trackPath(artist.slug, track.slug)}
                               onPlay={() => player.toggle(track, queue)}
                               onEdit={() => setEditingTrackId(track.id)}
                             />
@@ -825,9 +825,9 @@ function EventCard({
     }
   }
 
-  const artistUrl = artistSlug ? artistPath(artistSlug) : `/artist/${event.artistId}`;
-  const eventUrl = event.visibility === "public" && artistSlug && event.slug ? eventPath(artistSlug, event.slug) : `/event/${event.id}`;
-  const canShare = event.visibility === "public" && Boolean(artistSlug && event.slug);
+  const artistUrl = artistPath(artistSlug);
+  const eventUrl = event.visibility === "public" ? eventPath(artistSlug, event.slug) : `/event/${event.id}`;
+  const canShare = event.visibility === "public";
 
   return (
     <article className={open ? "night is-open" : "night"} id={`event-${event.id}`}>

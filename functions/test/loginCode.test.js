@@ -209,18 +209,39 @@ test("the right code signs a new fan in and a wrong code spends an attempt", asy
   assert.equal(auth.byEmail.get("ada@example.com").emailVerified, true);
 });
 
-test("an old profile is deleted and replaced instead of being merged", async () => {
+test("a document that is not the current profile shape is left unchanged", async () => {
   const { db, deps } = harness({
     seed: { "users/old": { displayName: "Old Name", email: "ada@example.com", createdAt: { ms: 1 } } },
   });
   const auth = fakeAuth([{ uid: "old", email: "ada@example.com", emailVerified: true }]);
   await issue(deps);
   const result = await acceptLoginCode({ db, auth, email: "ada@example.com", code: "482017", now: deps.now + 1000, timestampOf: ts });
-  assert.equal(result.needsProfile, true);
+  assert.equal(result.needsProfile, false);
   const profile = db.store.get("users/old");
-  assert.equal(profile.firstName, "");
-  assert.equal(profile.role, "fan");
-  assert.equal(Object.hasOwn(profile, "displayName"), false);
+  assert.equal(profile.displayName, "Old Name");
+  assert.equal(Object.hasOwn(profile, "firstName"), false);
+  assert.equal(Object.hasOwn(profile, "role"), false);
+});
+
+test("an unfinished profile still needs a name and is not rewritten", async () => {
+  const { db, deps } = harness({
+    seed: {
+      "users/ada": {
+        firstName: "",
+        lastName: "",
+        email: "ada@example.com",
+        photoURL: "",
+        role: "fan",
+        createdAt: { ms: 1 },
+      },
+    },
+  });
+  const auth = fakeAuth([{ uid: "ada", email: "ada@example.com", emailVerified: true }]);
+  await issue(deps);
+  const result = await acceptLoginCode({ db, auth, email: "ada@example.com", code: "482017", now: deps.now + 1000, timestampOf: ts });
+  assert.equal(result.needsProfile, true);
+  assert.equal(db.store.get("users/ada").createdAt.ms, 1);
+  assert.equal(db.store.get("users/ada").firstName, "");
 });
 
 test("a returning fan with a name does not need the name step, and a code cannot be reused", async () => {

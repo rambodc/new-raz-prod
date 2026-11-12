@@ -85,48 +85,6 @@ export async function assignScopedSlug(db, artistId, kind, targetId, name, curre
   return null;
 }
 
-/**
- * Idempotent. Fills missing slugs, share lookups, and public visibility.
- * Does not delete user documents. A slug owned by someone else is left alone and a suffix is chosen.
- */
-export async function backfillShares(db) {
-  const stats = { artists: 0, events: 0, tracks: 0 };
-  const artists = await db.collection("artists").get();
-  for (const artist of artists.docs) {
-    const data = artist.data() || {};
-    const slug = await assignArtistSlug(db, artist.id, data.name || "Artist", data.slug || "");
-    if (slug && data.slug !== slug) {
-      await artist.ref.update({ slug });
-      stats.artists += 1;
-    }
-    const tracks = await db.collection(`artists/${artist.id}/tracks`).get();
-    for (const track of tracks.docs) {
-      const trackData = track.data() || {};
-      const trackSlug = await assignScopedSlug(db, artist.id, "track", track.id, trackData.title || "track", trackData.slug || "");
-      if (trackSlug && trackData.slug !== trackSlug) {
-        await track.ref.update({ slug: trackSlug });
-        stats.tracks += 1;
-      }
-    }
-  }
-  const events = await db.collection("events").get();
-  for (const event of events.docs) {
-    const data = event.data() || {};
-    const patch = {};
-    if (data.visibility !== "public" && data.visibility !== "private") patch.visibility = "public";
-    const artistId = data.artistId;
-    if (typeof artistId === "string" && artistId) {
-      const slug = await assignScopedSlug(db, artistId, "event", event.id, data.title || "event", data.slug || "");
-      if (slug && data.slug !== slug) patch.slug = slug;
-    }
-    if (Object.keys(patch).length > 0) {
-      await event.ref.update(patch);
-      stats.events += 1;
-    }
-  }
-  return stats;
-}
-
 export async function loadShareModel(db, parsed) {
   const slugSnap = await db.doc(`slugs/${parsed.artistSlug}`).get();
   if (!slugSnap.exists) return null;
@@ -168,8 +126,8 @@ export async function removePrivateOg(bucket, eventId) {
  * Private events drop their preview image. Nothing here deletes the event, artist, or track.
  */
 export async function syncArtistRecord(db, bucket, artistId, after, ensureImage) {
-  if (!after) return;
-  const slug = await assignArtistSlug(db, artistId, after.name || "Artist", after.slug || "");
+  if (!after || !isSlug(after.slug)) return;
+  const slug = await assignArtistSlug(db, artistId, after.name || "Artist", after.slug);
   if (!slug) return;
   const revision = previewRevision("artist", { ...after, slug });
   if (after.slug === slug && after.ogRevision === revision) return;
@@ -188,13 +146,17 @@ export async function syncArtistRecord(db, bucket, artistId, after, ensureImage)
 
 export async function syncEventRecord(db, bucket, eventId, after, ensureImage) {
   if (!after) return;
-  const patch = {};
-  let visibility = after.visibility;
+  const visibility = after.visibility;
   if (visibility !== "public" && visibility !== "private") {
-    visibility = "public";
-    patch.visibility = "public";
+    await removePrivateOg(bucket, eventId);
+    return;
   }
-  let slug = after.slug || "";
+  if (!isSlug(after.slug) || after.slug === "t") {
+    if (visibility !== "public") await removePrivateOg(bucket, eventId);
+    return;
+  }
+  const patch = {};
+  let slug = after.slug;
   if (after.artistId) {
     const next = await assignScopedSlug(db, after.artistId, "event", eventId, after.title || "event", slug);
     if (next && next !== after.slug) {
@@ -209,7 +171,7 @@ export async function syncEventRecord(db, bucket, eventId, after, ensureImage) {
     return;
   }
   const revision = previewRevision("event", { ...after, slug, visibility });
-  if (after.slug === slug && after.visibility === visibility && after.ogRevision === revision && Object.keys(patch).length === 0) return;
+  if (after.slug === slug && after.ogRevision === revision && Object.keys(patch).length === 0) return;
   await ensureImage({
     objectPath: `og/events/${eventId}.jpg`,
     revision,
@@ -222,8 +184,8 @@ export async function syncEventRecord(db, bucket, eventId, after, ensureImage) {
 }
 
 export async function syncTrackRecord(db, bucket, artistId, trackId, after, ensureImage) {
-  if (!after) return;
-  const slug = await assignScopedSlug(db, artistId, "track", trackId, after.title || "track", after.slug || "");
+  if (!after || !isSlug(after.slug)) return;
+  const slug = await assignScopedSlug(db, artistId, "track", trackId, after.title || "track", after.slug);
   if (!slug) return;
   let artistName = "";
   const artistSnap = await db.doc(`artists/${artistId}`).get();
