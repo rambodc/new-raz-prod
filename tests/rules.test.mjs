@@ -2,8 +2,8 @@ import { readFile } from "node:fs/promises";
 import assert from "node:assert/strict";
 import { after, before, beforeEach, test } from "node:test";
 import { initializeTestEnvironment, assertFails, assertSucceeds } from "@firebase/rules-unit-testing";
-import { collection, deleteDoc, doc, getDoc, getDocs, orderBy, query, serverTimestamp, setDoc, Timestamp, updateDoc, where } from "firebase/firestore";
-import { ref, getBytes, uploadBytes, deleteObject } from "firebase/storage";
+import { collection, deleteDoc, doc, getDoc, getDocs, orderBy, query, serverTimestamp, setDoc, Timestamp, updateDoc, where, writeBatch } from "firebase/firestore";
+import { ref, getBytes, getDownloadURL, uploadBytes, deleteObject } from "firebase/storage";
 
 const projectId = process.env.GCLOUD_PROJECT || "demo-razzberry-rules";
 const EMAIL = "ada@example.com";
@@ -683,4 +683,150 @@ test("preview images are public to read and private event photos are not", async
     await setDoc(doc(context.firestore(), "events/shut1/rsvps/bea"), { status: "going" });
   });
   await assertSucceeds(getBytes(ref(bea, "events/shut1/cover.jpg")));
+});
+
+// The live create-event payload. Wednesday, Nov 25, 2026, 10:00 PM in America/Edmonton.
+const LIVE_START = Timestamp.fromDate(new Date("2026-11-26T05:00:00.000Z"));
+const LIVE_LINE = "Function tests passed, including a check that the berry color and the photo both show up in the JPEG. The fix is on cursor/public-share-links-f0db.";
+const LIVE_DESCRIPTION = `${LIVE_LINE}\nThe photo is cropped to the frame.`;
+const LIVE_TICKET = "https://wallpaper.cave/w/wp4472461";
+const objectUrl = (id) => `https://firebasestorage.googleapis.com/v0/b/new-raz-prod.firebasestorage.app/o/events%2F${id}%2Fcover.jpg?alt=media`;
+
+function liveEvent(id, slug, visibility) {
+  return eventDoc(id, {
+    title: "Shahr",
+    startsAt: LIVE_START,
+    venue: "Vennuue",
+    city: "Calgary",
+    description: LIVE_DESCRIPTION,
+    imageURL: objectUrl(id),
+    ticketUrl: LIVE_TICKET,
+    visibility,
+    showGuestList: true,
+    slug,
+  });
+}
+
+test("an artist can publish a public event and a private event, upload the cover, and still edit", async () => {
+  await seedArtist("nova");
+  await seedArtist("ada", "fan");
+  await seedArtist("bob");
+  const novaCtx = testEnv.authenticatedContext("nova", { email: "nova@example.com" });
+  const db = novaCtx.firestore();
+  const storage = novaCtx.storage();
+  const anon = testEnv.unauthenticatedContext().firestore();
+  const anonStorage = testEnv.unauthenticatedContext().storage();
+  const ada = authed("ada");
+  const adaStorage = testEnv.authenticatedContext("ada", { email: "ada@example.com" }).storage();
+  const jpeg = new Uint8Array([0xff, 0xd8, 0xff, 0xd9]);
+
+  async function publish(id, slug, visibility) {
+    const batch = writeBatch(db);
+    batch.set(doc(db, `events/${id}`), liveEvent(id, slug, visibility));
+    batch.set(doc(db, `artists/nova/eventShares/${slug}`), { eventId: id });
+    await assertSucceeds(batch.commit());
+    const created = await getDoc(doc(db, `events/${id}`));
+    assert.equal(created.data().description, LIVE_DESCRIPTION);
+    assert.equal(created.data().ticketUrl, LIVE_TICKET);
+    assert.equal(created.data().showGuestList, true);
+    assert.equal(created.data().visibility, visibility);
+    assert.equal(created.data().imageURL, objectUrl(id));
+    assert.equal(created.data().artistId, "nova");
+
+    const stored = ref(storage, `events/${id}/cover.jpg`);
+    await assertSucceeds(uploadBytes(stored, jpeg, { contentType: "image/jpeg" }));
+    const download = await getDownloadURL(stored);
+    assert.match(download, new RegExp(`events(?:%2F|/)${id}(?:%2F|/)cover\\.jpg`));
+    const imageURL = `${download}${download.includes("?") ? "&" : "?"}v=1`;
+    await assertSucceeds(updateDoc(doc(db, `events/${id}`), { imageURL, updatedAt: serverTimestamp() }));
+    await assertSucceeds(updateDoc(doc(db, `events/${id}`), {
+      title: "Shahr Late",
+      venue: "Vennuue",
+      city: "Calgary",
+      description: "Edited line.\nStill two lines.",
+      ticketUrl: "https://tickets.example.com/shahr",
+      showGuestList: false,
+      updatedAt: serverTimestamp(),
+    }));
+    const edited = await getDoc(doc(db, `events/${id}`));
+    assert.equal(edited.data().title, "Shahr Late");
+    assert.equal(edited.data().description, "Edited line.\nStill two lines.");
+    assert.equal(edited.data().ticketUrl, "https://tickets.example.com/shahr");
+    assert.equal(edited.data().showGuestList, false);
+    assert.equal(edited.data().slug, slug);
+    assert.equal(edited.data().imageURL, imageURL);
+    assert.equal(edited.data().visibility, visibility);
+  }
+
+  await publish("pubLive1", "shahr", "public");
+  await assertSucceeds(getDoc(doc(anon, "events/pubLive1")));
+  await assertSucceeds(getDoc(doc(anon, "artists/nova/eventShares/shahr")));
+  await assertSucceeds(getBytes(ref(anonStorage, "events/pubLive1/cover.jpg")));
+  await assertFails(updateDoc(doc(ada, "events/pubLive1"), { title: "Hacked", updatedAt: serverTimestamp() }));
+
+  await publish("prvLive1", "vennuue", "private");
+  await assertFails(getDoc(doc(anon, "events/prvLive1")));
+  await assertFails(getDoc(doc(ada, "events/prvLive1")));
+  await assertSucceeds(getDoc(doc(db, "events/prvLive1")));
+  await assertFails(getDoc(doc(anon, "artists/nova/eventShares/vennuue")));
+  await assertSucceeds(getDoc(doc(db, "artists/nova/eventShares/vennuue")));
+  await assertFails(getBytes(ref(anonStorage, "events/prvLive1/cover.jpg")));
+  await assertFails(getBytes(ref(adaStorage, "events/prvLive1/cover.jpg")));
+  await assertSucceeds(getBytes(ref(storage, "events/prvLive1/cover.jpg")));
+
+  await assertSucceeds(updateDoc(doc(db, "events/prvLive1"), { visibility: "public", updatedAt: serverTimestamp() }));
+  await assertSucceeds(getDoc(doc(anon, "events/prvLive1")));
+  await assertSucceeds(getDoc(doc(anon, "artists/nova/eventShares/vennuue")));
+  await assertSucceeds(updateDoc(doc(db, "events/prvLive1"), { visibility: "private", showGuestList: true, updatedAt: serverTimestamp() }));
+  await assertFails(getDoc(doc(anon, "events/prvLive1")));
+  await assertFails(getDoc(doc(anon, "artists/nova/eventShares/vennuue")));
+
+  const fanBatch = writeBatch(ada);
+  fanBatch.set(doc(ada, "events/fanLive1"), liveEvent("fanLive1", "nope", "public"));
+  fanBatch.set(doc(ada, "artists/ada/eventShares/nope"), { eventId: "fanLive1" });
+  await assertFails(fanBatch.commit());
+
+  const mismatch = writeBatch(db);
+  mismatch.set(doc(db, "events/mis1"), liveEvent("mis1", "real-slug", "public"));
+  mismatch.set(doc(db, "artists/nova/eventShares/other-slug"), { eventId: "mis1" });
+  await assertFails(mismatch.commit());
+  await assertFails(setDoc(doc(db, "artists/nova/eventShares/ghost"), { eventId: "doesnotexist1" }));
+  await assertFails(setDoc(doc(db, "events/blank2"), eventDoc("blank2", { description: " \n\t\n ", slug: "blank-two" })));
+  await assertFails(setDoc(doc(db, "events/line1"), eventDoc("line1", { title: "Shahr\nLate", description: LIVE_DESCRIPTION, ticketUrl: LIVE_TICKET, slug: "line-night" })));
+  await assertFails(updateDoc(doc(db, "events/pubLive1"), { imageURL: objectUrl("otherEvent"), updatedAt: serverTimestamp() }));
+
+  const withStats = writeBatch(db);
+  withStats.set(doc(db, "events/stat1"), liveEvent("stat1", "stat-night", "private"));
+  withStats.set(doc(db, "artists/nova/eventShares/stat-night"), { eventId: "stat1" });
+  withStats.set(doc(db, "events/stat1/stats/host"), { opens: 1, goingCount: 0, signupCount: 0 });
+  await assertFails(withStats.commit());
+  const bob = authed("bob", "bob@example.com");
+  await assertFails(setDoc(doc(bob, "artists/bob/eventShares/shahr"), { eventId: "pubLive1" }));
+
+  const retarget = writeBatch(db);
+  retarget.update(doc(db, "events/pubLive1"), { slug: "hijack", updatedAt: serverTimestamp() });
+  retarget.set(doc(db, "artists/nova/eventShares/hijack"), { eventId: "pubLive1" });
+  await assertFails(retarget.commit());
+  await testEnv.withSecurityRulesDisabled(async (context) => {
+    const admin = context.firestore();
+    assert.equal((await getDoc(doc(admin, "events/mis1"))).exists(), false);
+    assert.equal((await getDoc(doc(admin, "events/stat1"))).exists(), false);
+    assert.equal((await getDoc(doc(admin, "events/pubLive1"))).data().slug, "shahr");
+    assert.equal((await getDoc(doc(admin, "artists/nova/eventShares/hijack"))).exists(), false);
+    assert.equal((await getDoc(doc(admin, "events/prvLive1"))).data().visibility, "private");
+  });
+});
+
+test("a track and its share can be created in one batch, and a mismatched slug cannot", async () => {
+  await seedArtist("nova");
+  const db = authed("nova", "nova@example.com");
+  const batch = writeBatch(db);
+  batch.set(doc(db, "artists/nova/tracks/song9"), trackDoc({ slug: "midnight-set", title: "Midnight" }));
+  batch.set(doc(db, "artists/nova/trackShares/midnight-set"), { trackId: "song9" });
+  await assertSucceeds(batch.commit());
+  await assertSucceeds(getDoc(doc(testEnv.unauthenticatedContext().firestore(), "artists/nova/trackShares/midnight-set")));
+  const mismatch = writeBatch(db);
+  mismatch.set(doc(db, "artists/nova/tracks/song8"), trackDoc({ slug: "dawn", title: "Dawn" }));
+  mismatch.set(doc(db, "artists/nova/trackShares/not-dawn"), { trackId: "song8" });
+  await assertFails(mismatch.commit());
 });

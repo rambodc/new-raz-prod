@@ -181,8 +181,14 @@ service cloud.firestore {
       );
     }
 
+    // One line, with a real character. [^\n\r] instead of "." because RE2 "." stops at a newline.
     function textOk(value, max) {
-      return value is string && value.size() > 0 && value.size() <= max && value.matches('.*\\S.*');
+      return value is string && value.size() > 0 && value.size() <= max && value.matches('[^\\n\\r]*\\S[^\\n\\r]*');
+    }
+
+    // Descriptions can be more than one line. A blank or whitespace-only value is still rejected.
+    function blockOk(value, max) {
+      return value is string && value.size() > 0 && value.size() <= max && !value.matches('\\s*');
     }
 
     function validSlugValue(value) {
@@ -267,7 +273,7 @@ service cloud.firestore {
         && d.startsAt is timestamp
         && textOk(d.venue, 120)
         && textOk(d.city, 80)
-        && textOk(d.description, 2000)
+        && blockOk(d.description, 2000)
         && urlInFolder(d.imageURL, 'events', eventId)
         && validTicket(d.ticketUrl)
         && d.createdAt is timestamp
@@ -462,7 +468,16 @@ service cloud.firestore {
         && get(eventPath).data.visibility == 'public';
     }
 
-    // One event slug per artist. Create only when the event already says this slug and this owner.
+    // Publish writes the event and this lock in one batch. exists/get still see the
+    // database from before that batch, so the lock has to read the post-batch event.
+    function eventShareMatches(eventId, artistId, slug) {
+      let path = /databases/$(database)/documents/events/$(eventId);
+      return existsAfter(path)
+        && getAfter(path).data.artistId == artistId
+        && getAfter(path).data.slug == slug;
+    }
+
+    // One event slug per artist. Create only when the event says this slug and this owner.
     match /artists/{artistId}/eventShares/{slug} {
       allow get: if (request.auth != null && request.auth.uid == artistId) || linkedEventPublic(artistId);
       allow list: if false;
@@ -472,11 +487,16 @@ service cloud.firestore {
         && request.resource.data.keys().hasOnly(['eventId'])
         && request.resource.data.keys().hasAll(['eventId'])
         && safeId(request.resource.data.eventId)
-        && exists(/databases/$(database)/documents/events/$(request.resource.data.eventId))
-        && get(/databases/$(database)/documents/events/$(request.resource.data.eventId)).data.artistId == artistId
-        && get(/databases/$(database)/documents/events/$(request.resource.data.eventId)).data.slug == slug;
+        && eventShareMatches(request.resource.data.eventId, artistId, slug);
       allow update: if false;
       allow delete: if ownsArtistPage(artistId);
+    }
+
+    // Same batch as the track create. exists/get would miss a track written beside this lock.
+    function trackShareMatches(artistId, trackId, slug) {
+      let path = /databases/$(database)/documents/artists/$(artistId)/tracks/$(trackId);
+      return existsAfter(path)
+        && getAfter(path).data.slug == slug;
     }
 
     match /artists/{artistId}/trackShares/{slug} {
@@ -487,8 +507,7 @@ service cloud.firestore {
         && request.resource.data.keys().hasOnly(['trackId'])
         && request.resource.data.keys().hasAll(['trackId'])
         && safeId(request.resource.data.trackId)
-        && exists(/databases/$(database)/documents/artists/$(artistId)/tracks/$(request.resource.data.trackId))
-        && get(/databases/$(database)/documents/artists/$(artistId)/tracks/$(request.resource.data.trackId)).data.slug == slug;
+        && trackShareMatches(artistId, request.resource.data.trackId, slug);
       allow update: if false;
       allow delete: if ownsArtistPage(artistId);
     }

@@ -1340,7 +1340,12 @@ img { max-width: 100%; display: block; }
 
 .stage-bg-sharp { opacity: 1; }
 
-.stage-bg-blur { opacity: 0; }
+/* CSS blur, not a canvas copy. Reading the Storage photo into a canvas is a cross-origin fetch, and the bucket response has no Access-Control-Allow-Origin. */
+.stage-bg-blur {
+  opacity: 0;
+  filter: blur(28px);
+  transform: scale(1.12);
+}
 
 .stage-bg-scrim {
   background:
