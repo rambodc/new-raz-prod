@@ -5,7 +5,7 @@ import { createCanvas, loadImage } from "@napi-rs/canvas";
 import { eventSubtitle, injectShareMeta, isPublicEvent, shareMeta } from "../lib/og.js";
 import { renderOgCard } from "../lib/ogImage.js";
 import { parseSharePath, slugCandidates, slugify } from "../lib/slug.js";
-import { backfillShares } from "../lib/shares.js";
+import { syncArtistRecord, syncEventRecord, syncTrackRecord } from "../lib/shares.js";
 import { composeSharePage } from "../lib/sharePage.js";
 
 const shell = `<!doctype html><html><head><title>Razzberry</title><meta name="description" content="old"><meta name="theme-color" content="#111"></head><body><div id="root"></div></body></html>`;
@@ -139,30 +139,28 @@ test("inject escapes quotes in titles", () => {
   assert.match(html, /Bass &amp; nights/);
 });
 
-test("backfill assigns slugs once and leaves private events private", async () => {
+test("a missing slug or visibility is not invented", async () => {
+  assert.equal(isPublicEvent({}), false);
+  assert.equal(isPublicEvent({ visibility: null }), false);
+  assert.equal(isPublicEvent({ visibility: "public" }), true);
   const records = {
-    "slugs/ada-vale": { artistId: "someone-else", kind: "artist" },
     "artists/ada": { name: "Ada Vale", bio: "", imageURL: "", ownerUid: "ada" },
     "artists/ada/tracks/t1": { title: "Midnight" },
     "events/e1": { artistId: "ada", title: "River Room" },
-    "events/e2": { artistId: "ada", title: "Secret Set", visibility: "private" },
+    "events/e2": { artistId: "ada", title: "Secret Set", slug: "secret-set", visibility: "private" },
   };
   const db = fakeDb(records);
-  const first = await backfillShares(db);
-  assert.equal(records["artists/ada"].slug, "ada-vale-2");
-  assert.equal(records["slugs/ada-vale-2"].artistId, "ada");
-  assert.equal(records["events/e1"].visibility, "public");
-  assert.equal(records["events/e1"].slug, "river-room");
-  assert.equal(records["artists/ada/eventShares/river-room"].eventId, "e1");
+  await syncArtistRecord(db, null, "ada", records["artists/ada"], async () => "");
+  await syncEventRecord(db, null, "e1", records["events/e1"], async () => "");
+  await syncEventRecord(db, null, "e2", records["events/e2"], async () => "");
+  await syncTrackRecord(db, null, "ada", "t1", records["artists/ada/tracks/t1"], async () => "");
+  assert.equal(records["artists/ada"].slug, undefined);
+  assert.equal(records["events/e1"].visibility, undefined);
+  assert.equal(records["events/e1"].slug, undefined);
   assert.equal(records["events/e2"].visibility, "private");
   assert.equal(records["events/e2"].slug, "secret-set");
-  assert.equal(records["artists/ada/tracks/t1"].slug, "midnight");
-  assert.equal(records["artists/ada/trackShares/midnight"].trackId, "t1");
-  assert.equal(first.artists > 0, true);
-  const second = await backfillShares(db);
-  assert.deepEqual(second, { artists: 0, events: 0, tracks: 0 });
-  assert.equal(records["artists/ada"].name, "Ada Vale");
-  assert.equal(records["events/e2"].title, "Secret Set");
+  assert.equal(records["artists/ada/tracks/t1"].slug, undefined);
+  assert.equal(records["artists/ada/eventShares/secret-set"].eventId, "e2");
 });
 
 function pixel(image, x, y) {

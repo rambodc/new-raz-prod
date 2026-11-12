@@ -9,7 +9,7 @@ There is no password. The code lives for 10 minutes, allows 5 attempts, and is s
 - `https://us-central1-new-raz-prod.cloudfunctions.net/sendLoginCode`
 - `https://us-central1-new-raz-prod.cloudfunctions.net/verifyLoginCode`
 
-`verifyLoginCode` returns a Firebase custom token. The client calls `signInWithCustomToken`. A profile that is missing a first name, including any old `displayName` document, is deleted and written again as `role: "fan"`. Old profile fields are not kept. Auth users are reused for the same email. Existing Auth users can also be removed in the Firebase console if a full wipe is wanted; this app does not read the old shape.
+`verifyLoginCode` returns a Firebase custom token. The client calls `signInWithCustomToken`. When `users/{uid}` does not exist yet, it is created as `role: "fan"` with an empty name so the person can finish signing up. A document that already exists is left as it is. Auth users are reused for the same email.
 
 The Resend key is the Cloud Secret `RESEND_API_KEY` (already in Secret Manager). It is bound with `defineSecret` and is never logged. Custom tokens need `iam.serviceAccounts.signBlob` on the functions runtime service account. For this project that account is `555086285693-compute@developer.gserviceaccount.com` unless a custom service account is set. Grant `roles/iam.serviceAccountTokenCreator` to that account on itself. Do not put the Resend key in a `VITE_` variable.
 
@@ -22,7 +22,7 @@ The concert photo is Unsplash `photo-1540039155733-5bb30b53aa14` (Unsplash Licen
 - **React 19 + TypeScript + Vite.** Inter, then the system sans.
 - **Firebase Auth, Firestore, Storage.** `users/{uid}` holds firstName, lastName, email, photoURL, role, createdAt, updatedAt. `role` is `fan` or `artist`. A person cannot change their own role. Avatars are `users/{uid}/avatar`, resized in the browser to about 512px.
 - **Artists, events and tracks.** `artists/{uid}` holds name, bio, imageURL, ownerUid, createdAt, updatedAt. `events/{eventId}` holds artistId, title, startsAt, venue, city, description, imageURL, ticketUrl, createdAt, updatedAt. `ticketUrl` is optional and must be an http(s) link. `artists/{uid}/tracks/{trackId}` holds title, duration, order, audioURL, coverURL, createdAt, updatedAt. Pages, events and tracks are public to read. Only the owning artist can write. Home lists upcoming events, soonest first. An artist page scrolls from the hero into events and tracks; editing, creating and event details expand on that page. `/event/:id` and `/events/new` open the same page. Hero images are resized in the browser. Audio (mp3, m4a, aac, wav, under 30 MB) is stored at `artists/{uid}/tracks/`.
-- **Functions** also still include check-in and the older artist image upload. The new pages do not call them. `setUserRole` is the admin callable that sets a role.
+- **Functions** also still include check-in. The new pages do not call it. `setUserRole` is the admin callable that sets a role.
 
 ## Local development
 

@@ -211,7 +211,7 @@ const artistImage = (id) => `https://firebasestorage.googleapis.com/v0/b/new-raz
 const eventImage = (id) => `https://firebasestorage.googleapis.com/v0/b/new-raz-prod.firebasestorage.app/o/events%2F${id}%2Fcover.jpg?alt=media`;
 
 function artistDoc(extra = {}) {
-  return { name: "DJ Nova", bio: "", imageURL: "", ownerUid: "nova", createdAt: at(0), updatedAt: at(0), ...extra };
+  return { name: "DJ Nova", bio: "", imageURL: "", ownerUid: "nova", slug: "dj-nova", createdAt: at(0), updatedAt: at(0), ...extra };
 }
 
 function eventDoc(id, extra = {}) {
@@ -320,6 +320,7 @@ function trackDoc(extra = {}) {
     order: 0,
     audioURL: trackAudio("nova"),
     coverURL: "",
+    slug: "midnight",
     createdAt: serverTimestamp(),
     updatedAt: serverTimestamp(),
     ...extra,
@@ -357,6 +358,9 @@ test("tracks are public to read and only the owning artist can write them", asyn
   await assertFails(setDoc(doc(nova, "artists/nova/tracks/t2"), trackDoc({ duration: 20000 })));
   await assertFails(setDoc(doc(nova, "artists/nova/tracks/t2"), trackDoc({ order: 1.5 })));
   await assertFails(setDoc(doc(nova, "artists/nova/tracks/t2"), trackDoc({ order: -1 })));
+  const noSlug = trackDoc();
+  delete noSlug.slug;
+  await assertFails(setDoc(doc(nova, "artists/nova/tracks/t2"), noSlug));
   await assertFails(setDoc(doc(anon, "artists/nova/tracks/t2"), trackDoc()));
   await assertSucceeds(deleteDoc(doc(nova, "artists/nova/tracks/t1")));
 });
@@ -388,8 +392,9 @@ test("artist and event images are public to read, and only the owning artist can
   await seed();
   await testEnv.withSecurityRulesDisabled(async (context) => {
     const db = context.firestore();
-    await setDoc(doc(db, "events/e1"), { artistId: "nova" });
-    await setDoc(doc(db, "events/e2"), { artistId: "bob" });
+    await setDoc(doc(db, "events/e1"), { artistId: "nova", visibility: "public" });
+    await setDoc(doc(db, "events/e2"), { artistId: "bob", visibility: "public" });
+    await setDoc(doc(db, "events/bare"), { artistId: "nova" });
   });
   const jpeg = new Uint8Array([0xff, 0xd8, 0xff, 0xd9]);
   const nova = testEnv.authenticatedContext("nova", { email: "nova@example.com" }).storage();
@@ -413,6 +418,11 @@ test("artist and event images are public to read, and only the owning artist can
   await assertFails(uploadBytes(ref(nova, "events/missing1/cover.jpg"), jpeg, { contentType: "image/jpeg" }));
   await assertSucceeds(uploadBytes(ref(nova, "events/e1/cover.jpg"), jpeg, { contentType: "image/jpeg" }));
   await assertSucceeds(getBytes(ref(anon, "events/e1/cover.jpg")));
+  await testEnv.withSecurityRulesDisabled(async (context) => {
+    await uploadBytes(ref(context.storage(), "events/bare/cover.jpg"), jpeg, { contentType: "image/jpeg" });
+  });
+  await assertFails(getBytes(ref(anon, "events/bare/cover.jpg")));
+  await assertSucceeds(getBytes(ref(nova, "events/bare/cover.jpg")));
   await assertFails(uploadBytes(ref(nova, "events/e2/cover.jpg"), jpeg, { contentType: "image/jpeg" }));
   await assertFails(uploadBytes(ref(ada, "events/e1/cover.jpg"), jpeg, { contentType: "image/jpeg" }));
   await assertFails(uploadBytes(ref(anon, "events/e1/cover.jpg"), jpeg, { contentType: "image/jpeg" }));
@@ -504,6 +514,17 @@ test("public events are readable signed out, private events are only readable by
   await assertFails(getDoc(doc(anon, "events/sec1")));
   await assertFails(updateDoc(doc(ada, "events/sec1"), { visibility: "public", updatedAt: serverTimestamp() }));
   await assertFails(updateDoc(doc(nova, "events/pub1"), { slug: "stolen", updatedAt: serverTimestamp() }));
+  const noVisibility = eventDoc("bare1");
+  delete noVisibility.visibility;
+  await assertFails(setDoc(doc(nova, "events/bare1"), noVisibility));
+  const noSlug = eventDoc("bare2");
+  delete noSlug.slug;
+  await assertFails(setDoc(doc(nova, "events/bare2"), noSlug));
+  await testEnv.withSecurityRulesDisabled(async (context) => {
+    await setDoc(doc(context.firestore(), "events/old1"), { artistId: "nova", title: "Old night" });
+  });
+  await assertFails(getDoc(doc(anon, "events/old1")));
+  await assertSucceeds(getDoc(doc(nova, "events/old1")));
   await assertFails(getDoc(doc(anon, "events/pub1/invites/ada")));
   await assertFails(setDoc(doc(nova, "events/pub1/invites/ada"), { uid: "ada" }));
 });

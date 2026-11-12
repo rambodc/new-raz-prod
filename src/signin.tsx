@@ -1,4 +1,4 @@
-import { useState, type FormEvent } from "react";
+import { useEffect, useState, type FormEvent, type MouseEvent } from "react";
 import { cleanEmail, validEmail } from "./profile";
 import { explain, requestCode, verifyCode } from "./services";
 import { Field } from "./ui";
@@ -9,6 +9,27 @@ export function SignInSheet({ onClose, onVerified }: { onClose: () => void; onVe
   const [code, setCode] = useState("");
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
+
+  useEffect(() => {
+    const root = document.documentElement;
+    const body = document.body;
+    const prevRoot = root.style.overflow;
+    const prevBody = body.style.overflow;
+    root.style.overflow = "hidden";
+    body.style.overflow = "hidden";
+    return () => {
+      root.style.overflow = prevRoot;
+      body.style.overflow = prevBody;
+    };
+  }, []);
+
+  useEffect(() => {
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key === "Escape") onClose();
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [onClose]);
 
   async function send(event: FormEvent) {
     event.preventDefault();
@@ -46,32 +67,38 @@ export function SignInSheet({ onClose, onVerified }: { onClose: () => void; onVe
     }
   }
 
+  function closeFromBackdrop(event: MouseEvent<HTMLDivElement>) {
+    if (event.target === event.currentTarget) onClose();
+  }
+
   return (
-    <div className="signin-sheet" role="dialog" aria-labelledby="signin-title">
-      <div className="signin-head">
-        <h2 id="signin-title">Sign in</h2>
-        <button type="button" className="stage-text" onClick={onClose}>
-          Close
-        </button>
+    <div className="signin-layer" onMouseDown={closeFromBackdrop}>
+      <div className="signin-sheet" role="dialog" aria-modal="true" aria-labelledby="signin-title" onMouseDown={(event) => event.stopPropagation()}>
+        <div className="signin-head">
+          <h2 id="signin-title">Sign in</h2>
+          <button type="button" className="stage-text" onClick={onClose}>
+            Close
+          </button>
+        </div>
+        <p className="signin-copy">We'll email you a 6-digit code. No password needed.</p>
+        {sentTo ? (
+          <form onSubmit={(event) => void confirm(event)}>
+            <Field label="Code" inputMode="numeric" autoComplete="one-time-code" value={code} disabled={busy} maxLength={6} onChange={(event) => setCode(event.target.value.replace(/\D/g, "").slice(0, 6))} />
+            {error ? <p className="form-error" role="alert">{error}</p> : null}
+            <button className="primary" type="submit" disabled={busy}>
+              {busy ? "Checking…" : "Continue"}
+            </button>
+          </form>
+        ) : (
+          <form onSubmit={(event) => void send(event)}>
+            <Field label="Email" type="email" name="email" autoComplete="email" inputMode="email" placeholder="you@email.com" value={email} disabled={busy} onChange={(event) => setEmail(event.target.value)} />
+            {error ? <p className="form-error" role="alert">{error}</p> : null}
+            <button className="primary" type="submit" disabled={busy}>
+              {busy ? "Sending…" : "Email me a code"}
+            </button>
+          </form>
+        )}
       </div>
-      <p className="signin-copy">We'll email you a 6-digit code. No password needed.</p>
-      {sentTo ? (
-        <form onSubmit={(event) => void confirm(event)}>
-          <Field label="Code" inputMode="numeric" autoComplete="one-time-code" value={code} disabled={busy} maxLength={6} onChange={(event) => setCode(event.target.value.replace(/\D/g, "").slice(0, 6))} />
-          {error ? <p className="form-error" role="alert">{error}</p> : null}
-          <button className="primary" type="submit" disabled={busy}>
-            {busy ? "Checking…" : "Continue"}
-          </button>
-        </form>
-      ) : (
-        <form onSubmit={(event) => void send(event)}>
-          <Field label="Email" type="email" name="email" autoComplete="email" inputMode="email" placeholder="you@email.com" value={email} disabled={busy} onChange={(event) => setEmail(event.target.value)} />
-          {error ? <p className="form-error" role="alert">{error}</p> : null}
-          <button className="primary" type="submit" disabled={busy}>
-            {busy ? "Sending…" : "Email me a code"}
-          </button>
-        </form>
-      )}
     </div>
   );
 }

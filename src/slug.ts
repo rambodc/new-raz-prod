@@ -118,6 +118,6 @@ export function trackPath(artistSlug: string, trackSlug: string): string {
   return `/${artistSlug}/t/${trackSlug}`;
 }
 
-export function artistHref(artist: { id: string; slug: string }): string {
-  return artist.slug ? artistPath(artist.slug) : `/artist/${artist.id}`;
+export function artistHref(artist: { slug: string }): string {
+  return artistPath(artist.slug);
 }

@@ -69,10 +69,7 @@ service firebase.storage {
 
     function eventIsPublic(eventId) {
       return firestore.exists(eventDoc(eventId))
-        && (
-          !('visibility' in firestore.get(eventDoc(eventId)).data)
-          || firestore.get(eventDoc(eventId)).data.visibility == 'public'
-        );
+        && firestore.get(eventDoc(eventId)).data.visibility == 'public';
     }
 
     // Public event images are world-readable. A private event image is readable by its artist only.

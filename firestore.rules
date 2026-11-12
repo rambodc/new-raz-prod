@@ -9,7 +9,7 @@ service cloud.firestore {
     //   The owner may update name, bio and imageURL only. slug and ogRevision stay put.
     // slugs/{slug}: { artistId, kind: "artist" }. Public get so a share URL can resolve. Clients cannot write.
     // events/{eventId}: artistId, title, startsAt, venue, city, description, imageURL, ticketUrl,
-    //   visibility ("public" | "private", missing means public), slug, createdAt, updatedAt, optional ogRevision.
+    //   visibility ("public" | "private"), slug, createdAt, updatedAt, optional ogRevision.
     //   Public events are world-readable. Private events are readable by the owning artist only.
     //   events/{eventId}/invites/{uid} is reserved for a future invite list. Clients cannot touch it yet.
     //   A later rule can allow the owner to write invites and an invitee to read the private event.
@@ -151,6 +151,13 @@ service cloud.firestore {
       return value is string && value.size() > 0 && value.size() <= max && value.matches('.*\\S.*');
     }
 
+    function validSlugValue(value) {
+      return value is string
+        && value.size() > 0
+        && value.size() <= 60
+        && value.matches('^[a-z0-9]+(-[a-z0-9]+)*$');
+    }
+
     function callerIsArtist() {
       return request.auth != null
         && exists(/databases/$(database)/documents/users/$(request.auth.uid))
@@ -167,14 +174,9 @@ service cloud.firestore {
         && request.auth.uid == artistId
         && resource.data.ownerUid == request.auth.uid
         && request.resource.data.keys().hasOnly(['name', 'bio', 'imageURL', 'ownerUid', 'createdAt', 'updatedAt', 'slug', 'ogRevision'])
-        && request.resource.data.keys().hasAll(['name', 'bio', 'imageURL', 'ownerUid', 'createdAt', 'updatedAt'])
-        && (!('slug' in request.resource.data) || (
-          request.resource.data.slug is string
-          && request.resource.data.slug.size() > 0
-          && request.resource.data.slug.size() <= 60
-          && request.resource.data.slug.matches('^[a-z0-9]+(-[a-z0-9]+)*$')
-          && request.resource.data.slug == resource.data.slug
-        ))
+        && request.resource.data.keys().hasAll(['name', 'bio', 'imageURL', 'ownerUid', 'createdAt', 'updatedAt', 'slug'])
+        && validSlugValue(request.resource.data.slug)
+        && request.resource.data.slug == resource.data.slug
         && (!('ogRevision' in request.resource.data) || request.resource.data.ogRevision == resource.data.ogRevision)
         && textOk(request.resource.data.name, 80)
         && request.resource.data.bio is string
@@ -204,15 +206,6 @@ service cloud.firestore {
       );
     }
 
-    function optionalSlug(d) {
-      return !('slug' in d) || (
-        d.slug is string
-        && d.slug.size() > 0
-        && d.slug.size() <= 60
-        && d.slug.matches('^[a-z0-9]+(-[a-z0-9]+)*$')
-      );
-    }
-
     function optionalRevision(d) {
       return !('ogRevision' in d) || (
         d.ogRevision is string
@@ -223,7 +216,7 @@ service cloud.firestore {
     }
 
     function eventIsPublic() {
-      return !('visibility' in resource.data) || resource.data.visibility == 'public';
+      return resource.data.visibility == 'public';
     }
 
     function eventOwner() {
@@ -234,7 +227,7 @@ service cloud.firestore {
       let d = request.resource.data;
       return safeId(eventId)
         && d.keys().hasOnly(['artistId', 'title', 'startsAt', 'venue', 'city', 'description', 'imageURL', 'ticketUrl', 'createdAt', 'updatedAt', 'slug', 'visibility', 'ogRevision'])
-        && d.keys().hasAll(['artistId', 'title', 'startsAt', 'venue', 'city', 'description', 'imageURL', 'ticketUrl', 'createdAt', 'updatedAt'])
+        && d.keys().hasAll(['artistId', 'title', 'startsAt', 'venue', 'city', 'description', 'imageURL', 'ticketUrl', 'createdAt', 'updatedAt', 'slug', 'visibility'])
         && d.artistId == request.auth.uid
         && textOk(d.title, 120)
         && d.startsAt is timestamp
@@ -245,10 +238,10 @@ service cloud.firestore {
         && validTicket(d.ticketUrl)
         && d.createdAt is timestamp
         && d.updatedAt is timestamp
-        && optionalSlug(d)
-        && (request.method == 'create' || !('slug' in d) || !('slug' in resource.data) || d.slug == resource.data.slug)
-        && (!('slug' in d) || d.slug != 't')
-        && (!('visibility' in d) || d.visibility == 'public' || d.visibility == 'private')
+        && validSlugValue(d.slug)
+        && d.slug != 't'
+        && (request.method == 'create' || d.slug == resource.data.slug)
+        && (d.visibility == 'public' || d.visibility == 'private')
         && optionalRevision(d)
         && (request.method != 'create' || !('ogRevision' in d));
     }
@@ -268,7 +261,7 @@ service cloud.firestore {
         && request.resource.data.artistId == resource.data.artistId
         && request.resource.data.createdAt == resource.data.createdAt
         && request.resource.data.updatedAt == request.time
-        && (!('slug' in resource.data) || request.resource.data.slug == resource.data.slug)
+        && request.resource.data.slug == resource.data.slug
         && (!('ogRevision' in resource.data) || request.resource.data.ogRevision == resource.data.ogRevision)
         && request.resource.data.diff(resource.data).affectedKeys()
           .hasOnly(['title', 'startsAt', 'venue', 'city', 'description', 'imageURL', 'ticketUrl', 'visibility', 'updatedAt']);
@@ -305,8 +298,9 @@ service cloud.firestore {
       return safeId(trackId)
         && safeId(artistId)
         && d.keys().hasOnly(['title', 'duration', 'order', 'audioURL', 'coverURL', 'createdAt', 'updatedAt', 'slug', 'ogRevision'])
-        && d.keys().hasAll(['title', 'duration', 'order', 'audioURL', 'coverURL', 'createdAt', 'updatedAt'])
-        && optionalSlug(d)
+        && d.keys().hasAll(['title', 'duration', 'order', 'audioURL', 'coverURL', 'createdAt', 'updatedAt', 'slug'])
+        && validSlugValue(d.slug)
+        && (request.method == 'create' || d.slug == resource.data.slug)
         && optionalRevision(d)
         && (request.method != 'create' || !('ogRevision' in d))
         && textOk(d.title, 120)
@@ -333,7 +327,7 @@ service cloud.firestore {
         && validTrack(artistId, trackId)
         && request.resource.data.createdAt == resource.data.createdAt
         && request.resource.data.updatedAt == request.time
-        && (!('slug' in resource.data) || request.resource.data.slug == resource.data.slug)
+        && request.resource.data.slug == resource.data.slug
         && (!('ogRevision' in resource.data) || request.resource.data.ogRevision == resource.data.ogRevision)
         && request.resource.data.diff(resource.data).affectedKeys()
           .hasOnly(['title', 'duration', 'order', 'audioURL', 'coverURL', 'updatedAt']);
@@ -384,7 +378,7 @@ service cloud.firestore {
         && safeId(eventId)
         && exists(eventPath)
         && get(eventPath).data.artistId == artistId
-        && (!('visibility' in get(eventPath).data) || get(eventPath).data.visibility == 'public');
+        && get(eventPath).data.visibility == 'public';
     }
 
     // One event slug per artist. Create only when the event already says this slug and this owner.

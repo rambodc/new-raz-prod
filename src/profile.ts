@@ -24,12 +24,16 @@ export function validName(value: string): boolean {
   return value.length > 0 && value.length <= 60 && /\S/.test(value);
 }
 
-export function readProfile(data: Record<string, unknown> | undefined): Profile {
+export function readProfile(data: Record<string, unknown> | undefined): Profile | null {
+  if (!data) return null;
+  if (typeof data.firstName !== "string" || typeof data.lastName !== "string") return null;
+  if (typeof data.email !== "string" || typeof data.photoURL !== "string") return null;
+  if (data.role !== "fan" && data.role !== "artist") return null;
   return {
-    firstName: typeof data?.firstName === "string" ? data.firstName : "",
-    lastName: typeof data?.lastName === "string" ? data.lastName : "",
-    email: typeof data?.email === "string" ? data.email : "",
-    photoURL: typeof data?.photoURL === "string" ? data.photoURL : "",
-    role: data?.role === "artist" ? "artist" : "fan",
+    firstName: data.firstName,
+    lastName: data.lastName,
+    email: data.email,
+    photoURL: data.photoURL,
+    role: data.role,
   };
 }

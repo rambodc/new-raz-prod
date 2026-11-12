@@ -6,7 +6,7 @@ import { client, storageObjectUrl } from "./firebase";
 import type { Role } from "./profile";
 import type { Route } from "./routes";
 import { resizeImage, type ImageCrop } from "./resizeImage";
-import { artistPath, eventPath, slugCandidates } from "./slug";
+import { artistPath, eventPath, isSlug, slugCandidates } from "./slug";
 
 export type Visibility = "public" | "private";
 
@@ -128,14 +128,15 @@ function cacheBust(url: string): string {
 
 export function readArtist(id: string, data: Record<string, unknown>): Artist | null {
   const name = asString(data.name).trim();
-  if (!name) return null;
+  const slug = asString(data.slug);
+  if (!name || !isSlug(slug)) return null;
   return {
     id,
     name,
     bio: asString(data.bio),
     imageURL: asString(data.imageURL),
     ownerUid: asString(data.ownerUid),
-    slug: asString(data.slug),
+    slug,
   };
 }
 
@@ -143,7 +144,9 @@ export function readEvent(id: string, data: Record<string, unknown>): EventItem 
   const starts = data.startsAt;
   const startsAt = starts instanceof Timestamp ? starts.toDate() : null;
   const title = asString(data.title).trim();
-  if (!startsAt || !title) return null;
+  const slug = asString(data.slug);
+  const visibility = data.visibility === "public" || data.visibility === "private" ? data.visibility : null;
+  if (!startsAt || !title || !visibility || !isSlug(slug) || slug === "t") return null;
   return {
     id,
     artistId: asString(data.artistId),
@@ -154,8 +157,8 @@ export function readEvent(id: string, data: Record<string, unknown>): EventItem 
     description: asString(data.description),
     imageURL: asString(data.imageURL),
     ticketUrl: asString(data.ticketUrl).trim(),
-    visibility: data.visibility === "private" ? "private" : "public",
-    slug: asString(data.slug),
+    visibility,
+    slug,
   };
 }
 
@@ -164,8 +167,9 @@ export function readTrack(id: string, data: Record<string, unknown>): Track | nu
   const duration = typeof data.duration === "number" ? data.duration : Number.NaN;
   const order = typeof data.order === "number" ? data.order : Number.NaN;
   const audioURL = asString(data.audioURL);
-  if (!title || !Number.isFinite(duration) || !Number.isFinite(order) || !audioURL) return null;
-  return { id, title, duration, order, audioURL, coverURL: asString(data.coverURL), slug: asString(data.slug) };
+  const slug = asString(data.slug);
+  if (!title || !Number.isFinite(duration) || !Number.isFinite(order) || !audioURL || !isSlug(slug)) return null;
+  return { id, title, duration, order, audioURL, coverURL: asString(data.coverURL), slug };
 }
 
 function eventsFrom(docs: Array<{ id: string; data: () => Record<string, unknown> }>): EventItem[] {

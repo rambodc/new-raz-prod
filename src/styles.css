@@ -1822,17 +1822,34 @@ img { max-width: 100%; display: block; }
   to { transform: translateX(-50%) translateY(0); opacity: 1; }
 }
 
-.signin-sheet {
+.signin-layer {
   position: fixed;
-  left: 50%;
-  bottom: calc(16px + env(safe-area-inset-bottom) + var(--dock));
-  z-index: 40;
-  width: min(440px, calc(100% - 24px));
-  padding: 16px 16px 18px;
+  inset: 0;
+  z-index: 60;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  align-items: safe center;
+  justify-content: safe center;
+  padding:
+    calc(16px + env(safe-area-inset-top))
+    16px
+    calc(16px + env(safe-area-inset-bottom) + var(--keyboard));
+  overflow: auto;
+  overscroll-behavior: contain;
+  background: rgba(0, 0, 0, 0.48);
+  animation: signin-fade 0.28s ease;
+}
+
+.signin-sheet {
+  width: min(440px, 100%);
+  margin: auto;
+  flex: 0 0 auto;
+  padding: 18px 18px 20px;
   border-radius: 22px;
-  background: rgba(16, 14, 16, 0.94);
-  box-shadow: 0 18px 50px rgba(0, 0, 0, 0.45);
-  animation: sheet-up 0.35s ease;
+  background: rgba(16, 14, 16, 0.96);
+  box-shadow: 0 24px 60px rgba(0, 0, 0, 0.5);
+  animation: signin-in 0.32s ease;
 }
 
 .signin-head {
@@ -1855,9 +1872,14 @@ img { max-width: 100%; display: block; }
   line-height: 1.4;
 }
 
-@keyframes sheet-up {
-  from { transform: translateX(-50%) translateY(14px); opacity: 0; }
-  to { transform: translateX(-50%) translateY(0); opacity: 1; }
+@keyframes signin-fade {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@keyframes signin-in {
+  from { opacity: 0; transform: translateY(10px); }
+  to { opacity: 1; transform: translateY(0); }
 }
 
 .night-summary,
@@ -2429,7 +2451,9 @@ span.mini-art {
   .stage *::before,
   .stage *::after,
   .mini,
-  .mini * {
+  .mini *,
+  .signin-layer,
+  .signin-sheet {
     animation: none !important;
     transition: none !important;
   }
