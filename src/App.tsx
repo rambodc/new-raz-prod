@@ -8,7 +8,7 @@ import { cleanEmail, cleanName, validEmail, validName, type Profile } from "./pr
 import { currentPath, parseRoute, type Route } from "./routes";
 import { confirmEmailChange, explain, requestEmailChange, saveProfile, signOutUser, uploadAvatar, watchSession, type Session } from "./services";
 import { clearReturnPath, readPendingSignIn, rememberReturnPath, SignInSheet, signInDestination } from "./signin";
-import { Avatar, BackIcon, Boot, BrandLockup, CameraIcon, Field, Scene, SignInButton, TopBar, keepVisible } from "./ui";
+import { Avatar, BackIcon, Boot, BootProblem, BrandLockup, CameraIcon, Field, Scene, SignInButton, TopBar, keepVisible } from "./ui";
 
 const GUEST: Profile = { firstName: "", lastName: "", email: "", photoURL: "", role: "fan" };
 
@@ -18,6 +18,8 @@ function needsAccount(route: Route): boolean {
 
 export default function App() {
   const [session, setSession] = useState<Session>(import.meta.env.MODE === "test" ? { status: "signed-out" } : { status: "loading" });
+  const [sessionAttempt, setSessionAttempt] = useState(0);
+  const [sessionNonce, setSessionNonce] = useState(0);
   const [path, setPath] = useState(currentPath);
   const [photoVersion, setPhotoVersion] = useState(0);
   const [authOpen, setAuthOpen] = useState(() => parseRoute(currentPath()).name === "signin" || readPendingSignIn() !== null);
@@ -26,8 +28,24 @@ export default function App() {
 
   useEffect(() => {
     if (import.meta.env.MODE === "test") return;
-    return watchSession(setSession);
-  }, []);
+    let alive = true;
+    let settled = false;
+    const stop = watchSession((next) => {
+      if (!alive) return;
+      settled = true;
+      setSession(next);
+    });
+    const timer = window.setTimeout(() => {
+      if (!alive || settled) return;
+      if (sessionAttempt < 1) setSessionAttempt(1);
+      else setSession({ status: "error" });
+    }, 12000);
+    return () => {
+      alive = false;
+      window.clearTimeout(timer);
+      stop();
+    };
+  }, [sessionAttempt, sessionNonce]);
 
   useEffect(() => {
     const onPop = () => {
@@ -38,6 +56,19 @@ export default function App() {
     window.addEventListener("popstate", onPop);
     return () => window.removeEventListener("popstate", onPop);
   }, []);
+
+  useEffect(() => {
+    const route = parseRoute(path);
+    if (route.name !== "share" || !route.eventSlug) return;
+    const artist = `/${route.artistSlug}`;
+    const here = path;
+    const stack = historyStack.current;
+    if (stack.length >= 2 && stack[stack.length - 2] === artist && stack[stack.length - 1] === here) return;
+    window.history.replaceState({ razz: true }, "", artist);
+    window.history.pushState({ razz: true }, "", here);
+    const head = stack.slice(0, -1).filter((entry) => entry !== here);
+    historyStack.current = [...head, artist, here];
+  }, [path]);
 
   useEffect(() => {
     const viewport = window.visualViewport;
@@ -118,6 +149,16 @@ export default function App() {
     go("/");
   }
 
+  function toArtist(dest: string) {
+    const stack = historyStack.current;
+    if (stack.length > 1 && stack[stack.length - 2] === dest) {
+      stack.pop();
+      window.history.back();
+      return;
+    }
+    replace(dest);
+  }
+
   useEffect(() => {
     if (session.status !== "signed-in" || !session.profile?.firstName) return;
     const eventId = takePendingRsvp();
@@ -156,6 +197,19 @@ export default function App() {
   }
 
   if (session.status === "loading") return <Boot />;
+  if (session.status === "error") {
+    return (
+      <BootProblem
+        title="Couldn't open Razzberry"
+        body="Check your connection and try again."
+        onRetry={() => {
+          setSession({ status: "loading" });
+          setSessionAttempt(0);
+          setSessionNonce((value) => value + 1);
+        }}
+      />
+    );
+  }
 
   const signedIn = session.status === "signed-in" ? session : null;
   const needsName = signedIn !== null && !signedIn.profile?.firstName;
@@ -242,6 +296,7 @@ export default function App() {
         back={backHome}
         onHome={goHome}
         onSignIn={profile ? undefined : openSignIn}
+        toArtist={toArtist}
       />
     );
   } else {

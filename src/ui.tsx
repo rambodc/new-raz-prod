@@ -1,5 +1,6 @@
 import { useEffect, useId, useRef, useState, type InputHTMLAttributes, type MouseEvent, type ReactNode, type TextareaHTMLAttributes } from "react";
 import type { EventItem } from "./data";
+import { loadWithRetry } from "./deadline";
 import { formatWhen } from "./format";
 import { Logo } from "./logo";
 
@@ -9,6 +10,21 @@ export function Boot() {
       <div className="boot-mark">
         <Logo className="boot-logo" />
         <p className="boot-word">Razzberry</p>
+      </div>
+    </div>
+  );
+}
+
+export function BootProblem({ title, body, onRetry }: { title: string; body: string; onRetry: () => void }) {
+  return (
+    <div className="boot">
+      <div className="boot-problem">
+        <Logo className="boot-logo" />
+        <strong>{title}</strong>
+        <p>{body}</p>
+        <button className="primary" type="button" onClick={onRetry}>
+          Retry
+        </button>
       </div>
     </div>
   );
@@ -89,11 +105,38 @@ export function CameraIcon() {
   );
 }
 
-export function Avatar({ name, url, version, alt, lazy = false }: { name: string; url: string; version: number; alt: string; lazy?: boolean }) {
-  const letter = name.trim().charAt(0).toUpperCase() || "R";
-  if (!url) return <span className="avatar-fallback">{letter}</span>;
+export function Avatar({ url, version, alt, lazy = false }: { name: string; url: string; version: number; alt: string; lazy?: boolean }) {
+  if (!url) {
+    return (
+      <span className="avatar-fallback" role={alt ? "img" : undefined} aria-label={alt || undefined} aria-hidden={alt ? undefined : true}>
+        <Logo />
+      </span>
+    );
+  }
   const src = version > 0 ? `${url}${url.includes("?") ? "&" : "?"}v=${version}` : url;
   return <img src={src} alt={alt} width={128} height={128} decoding="async" loading={lazy ? "lazy" : undefined} />;
+}
+
+export function EventPhoto({ url, alt, priority = false }: { url: string; alt: string; priority?: boolean }) {
+  if (!url) {
+    return (
+      <span className="night-photo event-placeholder">
+        <Logo />
+      </span>
+    );
+  }
+  return (
+    <img
+      className="night-photo"
+      src={url}
+      alt={alt}
+      width={1200}
+      height={675}
+      decoding="async"
+      loading={priority ? undefined : "lazy"}
+      fetchPriority={priority ? "high" : undefined}
+    />
+  );
 }
 
 export function Cover({ url, alt, width, height, priority = false }: { url: string; alt: string; width: number; height: number; priority?: boolean }) {
@@ -241,7 +284,7 @@ export function useLoad<T>(key: string, load: () => Promise<T>) {
   useEffect(() => {
     let cancelled = false;
     setStatus("loading");
-    loadRef.current()
+    loadWithRetry(() => loadRef.current())
       .then((next) => {
         if (cancelled) return;
         setData(next);

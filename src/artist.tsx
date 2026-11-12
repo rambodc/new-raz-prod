@@ -1,19 +1,21 @@
 import { useEffect, useRef, useState, type FormEvent, type ReactNode, type TransitionEvent } from "react";
 import { ownsArtist } from "./access";
+import { loadWithRetry } from "./deadline";
 import { ARTIST_EVENT_LIMIT, canonicalFor, deleteEvent, deleteTrack, focusFromPage, focusReady, loadArtistPage, renameTrack, resolveRoutePage, saveTrackOrder, type Artist, type EventItem, type ResolvedPage, type Track } from "./data";
+import { EventPage } from "./eventPage";
 import { ArtistForm, EventForm, TrackForm } from "./forms";
 import { splitByTime } from "./events";
-import { cleanLine, cleanTicketUrl, formatDuration, formatWhen, validLine, validTicketUrl } from "./format";
+import { cleanLine, formatDuration, formatWhen, validLine } from "./format";
 import { useReducedMotion } from "./motion";
 import { PlayIcon, usePlayer } from "./player";
 import type { Profile } from "./profile";
 import type { Route } from "./routes";
 import { currentPath } from "./routes";
 import { explain } from "./services";
-import { EventSocial, InviteCorner, StatusScreen } from "./invite";
+import { EventSocial, StatusScreen } from "./invite";
 import { ShareButton } from "./share";
-import { artistPath, trackPath } from "./slug";
-import { Boot, BrandLockup, Chevron, Cover, Empty, Page, SignInButton } from "./ui";
+import { artistPath, eventPath, trackPath } from "./slug";
+import { Boot, BrandLockup, Chevron, Cover, Empty, EventPhoto, Page, SignInButton } from "./ui";
 
 function Expand({ open, id, children }: { open: boolean; id?: string; children: ReactNode }) {
   return (
@@ -229,6 +231,7 @@ export function ArtistStage({
   back,
   onHome,
   onSignIn,
+  toArtist,
 }: {
   route: Route;
   uid: string;
@@ -238,6 +241,7 @@ export function ArtistStage({
   back: () => void;
   onHome: () => void;
   onSignIn?: () => void;
+  toArtist: (path: string) => void;
 }) {
   const key = routeKey(route);
   const routeRef = useRef(route);
@@ -249,7 +253,7 @@ export function ArtistStage({
   viewRef.current = view;
 
   useEffect(() => {
-    let cancelled = false;
+    let alive = true;
     const active = routeRef.current;
     const current = viewRef.current;
     const focus = current ? focusFromPage(active, current.page) : null;
@@ -257,12 +261,12 @@ export function ArtistStage({
       const canonical = canonicalFor(active, current.page);
       setStatus("ready");
       setView((existing) => {
-        if (!existing) return existing;
-        if (existing.openEventId === focus.openEventId && existing.highlightTrackId === focus.highlightTrackId && existing.canonicalPath === canonical) return existing;
-        return { ...existing, openEventId: focus.openEventId, highlightTrackId: focus.highlightTrackId, canonicalPath: canonical };
+        const base = existing ?? current;
+        if (base.openEventId === focus.openEventId && base.highlightTrackId === focus.highlightTrackId && base.canonicalPath === canonical) return base;
+        return { ...base, openEventId: focus.openEventId, highlightTrackId: focus.highlightTrackId, canonicalPath: canonical };
       });
       return () => {
-        cancelled = true;
+        alive = false;
       };
     }
     // A slug that is not on this page is not a public event we already have. Do not
@@ -270,30 +274,29 @@ export function ArtistStage({
     if (focus?.sameArtist && current && focus.pendingEvent && !focus.pendingTrack && current.page.events.length < ARTIST_EVENT_LIMIT) {
       setStatus("ready");
       setView((existing) => {
-        if (!existing || (existing.openEventId === null && existing.canonicalPath === null)) return existing;
-        return { ...existing, openEventId: null, canonicalPath: null };
+        const base = existing ?? current;
+        if (base.openEventId === null && base.canonicalPath === null) return base;
+        return { ...base, openEventId: null, canonicalPath: null };
       });
       return () => {
-        cancelled = true;
+        alive = false;
       };
     }
-    if (!focus?.sameArtist) {
-      setView(null);
-      setStatus("loading");
-    }
-    resolveRoutePage(active, uid)
+    if (!focus?.sameArtist) setView(null);
+    setStatus("loading");
+    loadWithRetry(() => resolveRoutePage(active, uid))
       .then((next) => {
-        if (cancelled) return;
+        if (!alive) return;
         setView(next);
         setStatus("ready");
       })
       .catch(() => {
-        if (cancelled) return;
+        if (!alive) return;
         setView(null);
         setStatus("error");
       });
     return () => {
-      cancelled = true;
+      alive = false;
     };
   }, [key, nonce, uid]);
 
@@ -317,13 +320,14 @@ export function ArtistStage({
       <Page back={back} onHome={onHome} avatar={signIn}>
         <Empty title="Couldn't load this page" body="Check your connection and try again." />
         <button className="primary" type="button" onClick={() => setNonce((value) => value + 1)}>
-          Try again
+          Retry
         </button>
       </Page>
     );
   }
   if (view?.hiddenEvent) return <StatusScreen state="private" back={back} onHome={onHome} onSignIn={onSignIn} />;
-  if (status === "ready" && view && !view.page.artist) {
+  if (!view?.page.artist) {
+    if (status === "loading") return <Boot />;
     return (
       <Page back={back} onHome={onHome} avatar={signIn}>
         <Empty title={creatable ? "Artists publish events" : "This page isn't here"} body={creatable ? "This account can't create an event." : "It may have been removed."} />
@@ -333,7 +337,6 @@ export function ArtistStage({
       </Page>
     );
   }
-  if (!view?.page.artist) return <Boot />;
 
   const artist = view.page.artist;
   const focusNow = focusFromPage(route, view.page);
@@ -343,7 +346,14 @@ export function ArtistStage({
   const editing = route.name === "artist-edit" && owner;
   const creating = creatable && owner;
   const editingEventId = route.name === "event-edit" && route.id && owner ? route.id : null;
-  const askedForEvent = route.name === "event" || (route.name === "event-edit" && route.id !== null) || (route.name === "share" && route.eventSlug !== null);
+  if (route.name === "share" && route.eventSlug) {
+    const match = view.page.events.find((item) => item.slug === route.eventSlug);
+    const allowed = Boolean(match && (match.visibility === "public" || owner));
+    const leave = () => toArtist(artistPath(artist.slug));
+    if (!allowed || !match) return <StatusScreen state="private" back={leave} onHome={onHome} onSignIn={onSignIn} />;
+    return <EventPage event={match} artist={artist} uid={uid} onSignIn={onSignIn} onBack={leave} onHome={onHome} go={go} />;
+  }
+  const askedForEvent = route.name === "event" || (route.name === "event-edit" && route.id !== null);
   if (askedForEvent && !creating && !openEventId && !editingEventId) {
     return <StatusScreen state="private" back={back} onHome={onHome} onSignIn={onSignIn} />;
   }
@@ -408,6 +418,7 @@ function StageView({
   const reduced = useReducedMotion();
   const player = usePlayer();
   const adopt = player.adopt;
+  const [picked, setPicked] = useState<string | null | undefined>(undefined);
   const [adding, setAdding] = useState(false);
   const [editingTrackId, setEditingTrackId] = useState<string | null>(null);
   const [trackError, setTrackError] = useState("");
@@ -420,10 +431,13 @@ function StageView({
 
   useEffect(() => {
     window.scrollTo(0, 0);
+    setPicked(undefined);
     setUpcomingOpen(false);
     setPastOpen(false);
     setTracksOpen(false);
   }, [artist.id]);
+
+  const shownId = picked === undefined ? openEventId : picked;
 
   useEffect(() => {
     if (editing || creating || editingEventId) {
@@ -461,12 +475,12 @@ function StageView({
           ? "track-editor"
           : editingTrackId
             ? `track-editor-${editingTrackId}`
-            : openEventId
-              ? `event-${openEventId}`
+            : shownId
+              ? `event-${shownId}`
               : null;
     if (!id) return;
     document.getElementById(id)?.scrollIntoView({ behavior, block: "nearest" });
-  }, [artist.id, openEventId, editing, creating, editingEventId, adding, editingTrackId, reduced]);
+  }, [artist.id, shownId, editing, creating, editingEventId, adding, editingTrackId, reduced]);
 
   async function refresh(ensureEventId?: string) {
     await reload(ensureEventId);
@@ -547,7 +561,7 @@ function StageView({
                 <p className="stage-empty">{owner ? "When you publish a night, it shows up here." : "Nothing is scheduled yet."}</p>
               ) : (
                 <ul className="night-list">
-                  {previewItems(upcoming, upcomingOpen, EVENT_LIMIT, editingEventId || openEventId).map((event) => {
+                  {previewItems(upcoming, upcomingOpen, EVENT_LIMIT, editingEventId || shownId).map((event) => {
                     const editingThis = editingEventId === event.id;
                     return (
                       <li key={event.id}>
@@ -567,12 +581,12 @@ function StageView({
                           <Expand open={!editingThis}>
                             <EventCard
                               event={event}
-                              open={openEventId === event.id}
+                              open={shownId === event.id}
                               owner={owner}
                               uid={uid}
                               artistSlug={artist.slug}
                               onSignIn={onSignIn}
-                              replace={replace}
+                              onToggle={() => setPicked(shownId === event.id ? null : event.id)}
                               onEdit={() => replace(`/event/${event.id}/edit`)}
                               onDelete={async () => {
                                 await deleteEvent(event);
@@ -610,7 +624,7 @@ function StageView({
                     order={nextOrder}
                     onClose={() => setAdding(false)}
                     onSaved={async () => {
-                      await refresh(openEventId ?? undefined);
+                      await refresh(shownId ?? undefined);
                       setAdding(false);
                     }}
                   />
@@ -659,7 +673,7 @@ function StageView({
                                   await saveTrackOrder(artist.id, reordered.map((itemTrack) => itemTrack.id));
                                 } catch (caught) {
                                   setTrackError(explain(caught));
-                                  await refresh(openEventId ?? undefined);
+                                  await refresh(shownId ?? undefined);
                                 }
                               }}
                               onDelete={async () => {
@@ -696,7 +710,7 @@ function StageView({
                   <h2 id="past-events-heading">Past Events</h2>
                 </div>
                 <ul className="night-list">
-                  {previewItems(past, pastOpen, EVENT_LIMIT, editingEventId || openEventId).map((event) => {
+                  {previewItems(past, pastOpen, EVENT_LIMIT, editingEventId || shownId).map((event) => {
                     const editingThis = editingEventId === event.id;
                     return (
                       <li key={event.id}>
@@ -716,12 +730,12 @@ function StageView({
                           <Expand open={!editingThis}>
                             <EventCard
                               event={event}
-                              open={openEventId === event.id}
+                              open={shownId === event.id}
                               owner={owner}
                               uid={uid}
                               artistSlug={artist.slug}
                               onSignIn={onSignIn}
-                              replace={replace}
+                              onToggle={() => setPicked(shownId === event.id ? null : event.id)}
                               onEdit={() => replace(`/event/${event.id}/edit`)}
                               onDelete={async () => {
                                 await deleteEvent(event);
@@ -752,7 +766,7 @@ function EventCard({
   uid,
   artistSlug,
   onSignIn,
-  replace,
+  onToggle,
   onEdit,
   onDelete,
 }: {
@@ -762,15 +776,13 @@ function EventCard({
   uid: string;
   artistSlug: string;
   onSignIn?: () => void;
-  replace: (path: string) => void;
+  onToggle: () => void;
   onEdit: () => void;
   onDelete: () => Promise<void>;
 }) {
   const [confirming, setConfirming] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
-  const tickets = cleanTicketUrl(event.ticketUrl);
-  const showTickets = tickets.length > 0 && validTicketUrl(tickets);
 
   useEffect(() => {
     if (!open) setConfirming(false);
@@ -791,19 +803,16 @@ function EventCard({
     }
   }
 
-  const artistUrl = artistPath(artistSlug);
-  const eventUrl = event.visibility === "public" ? artistPath(artistSlug) + `/${event.slug}` : `/event/${event.id}`;
-  const canInvite = event.visibility === "public" || owner;
+  const sharePath = event.visibility === "public" ? eventPath(artistSlug, event.slug) : "";
 
   return (
     <article className={open ? "night is-open" : "night"} id={`event-${event.id}`}>
-      {canInvite ? <InviteCorner eventId={event.id} /> : null}
       <button
         type="button"
         className="night-summary"
         aria-expanded={open}
         aria-controls={`event-panel-${event.id}`}
-        onClick={() => replace(open ? artistUrl : eventUrl)}
+        onClick={onToggle}
       >
         <span className="night-thumb">
           <Cover url={event.imageURL} alt="" width={76} height={76} />
@@ -822,22 +831,15 @@ function EventCard({
       </button>
       <Expand open={open} id={`event-panel-${event.id}`}>
         <div className="night-detail">
-          {event.imageURL ? (
-            <div className="night-photo-wrap">
-              <img className="night-photo" src={event.imageURL} alt="" width={1200} height={675} decoding="async" loading="lazy" />
-            </div>
-          ) : null}
+          <div className="night-photo-wrap">
+            <EventPhoto url={event.imageURL} alt="" />
+          </div>
           <p className="night-detail-when">{formatWhen(event.startsAt, "detail")}</p>
           <p className="night-detail-place">
             {event.venue}
             <span>{event.city}</span>
           </p>
           {event.description ? <p className="stage-prose">{event.description}</p> : null}
-          {showTickets ? (
-            <a className="primary stage-tickets" href={tickets} target="_blank" rel="noopener noreferrer">
-              Get tickets
-            </a>
-          ) : null}
           {owner ? (
             <div className="stage-inline">
               <button type="button" className="icon-btn" aria-label="Edit event" onClick={onEdit}>
@@ -854,7 +856,7 @@ function EventCard({
             </div>
           ) : null}
           {error ? <p className="form-error" role="alert">{error}</p> : null}
-          {open ? <EventSocial event={event} owner={owner} uid={uid} onSignIn={onSignIn} /> : null}
+          {open ? <EventSocial event={event} owner={owner} uid={uid} onSignIn={onSignIn} sharePath={sharePath} /> : null}
         </div>
       </Expand>
     </article>
@@ -887,12 +889,14 @@ function TrackRow({
           <span className="track-time">{formatDuration(track.duration)}</span>
         </span>
       </button>
-      {sharePath ? <ShareButton title={track.title} text={track.title} path={sharePath} label={`Share ${track.title}`} /> : null}
-      {owner ? (
-        <button type="button" className="icon-btn" aria-label={`Edit ${track.title}`} onClick={onEdit}>
-          <PencilIcon />
-        </button>
-      ) : null}
+      <div className="track-tools">
+        {sharePath ? <ShareButton title={track.title} text={track.title} path={sharePath} label={`Share ${track.title}`} /> : null}
+        {owner ? (
+          <button type="button" className="icon-btn" aria-label={`Edit ${track.title}`} onClick={onEdit}>
+            <PencilIcon />
+          </button>
+        ) : null}
+      </div>
     </div>
   );
 }

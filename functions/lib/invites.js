@@ -222,15 +222,15 @@ async function listRsvps(db, eventId) {
 }
 
 /**
- * Creates or reuses the caller's invite. Public events can be shared signed out
- * (guestKey stands in for a uid). Private events require the host or a Going guest.
+ * Creates or reuses the caller's invite. The caller has to be signed in.
+ * Any signed-in person can invite to a public event. A private event only
+ * the host or a guest who is going.
  */
-export async function createInvite({ db, uid = "", eventId, guestKey = "", regenerate = false, now, timestampOf, newCode = () => generateInviteCode() }) {
+export async function createInvite({ db, uid = "", eventId, regenerate = false, now, timestampOf, newCode = () => generateInviteCode() }) {
   const id = cleanId(eventId);
   if (!id) throw new InviteError("bad-input", "That event isn't available.");
-  const actor = uid || cleanKey(guestKey);
-  if (!actor) throw new InviteError("bad-input", "That event isn't available.");
-  await charge(db, `invite_make_${sha256(actor)}`, now, 40);
+  if (!uid) throw new InviteError("unauthenticated", "Sign in first.");
+  await charge(db, `invite_make_${sha256(uid)}`, now, 40);
 
   const eventSnap = await db.doc(`events/${id}`).get();
   if (!eventSnap.exists) throw new InviteError("not-found", "That event isn't available.");
@@ -240,11 +240,10 @@ export async function createInvite({ db, uid = "", eventId, guestKey = "", regen
   const going = Boolean(goingSnap?.exists && goingSnap.data()?.status === "going");
   if (event.visibility === "private" && !host && !going) throw new InviteError("forbidden", "You can't invite people to this event.");
   if (event.visibility !== "public" && event.visibility !== "private") throw new InviteError("not-found", "That event isn't available.");
-  if (!uid && event.visibility !== "public") throw new InviteError("forbidden", "You can't invite people to this event.");
   if (eventHasEnded(event.startsAt, now)) throw new InviteError("ended", "This event has ended.");
 
-  const field = uid ? "createdBy" : "guestKey";
-  const value = uid || cleanKey(guestKey);
+  const field = "createdBy";
+  const value = uid;
   const existing = await findActive(db, id, field, value);
   if (existing.length > 0 && !regenerate) {
     const invite = existing[0].data() || {};
@@ -277,7 +276,7 @@ export async function createInvite({ db, uid = "", eventId, guestKey = "", regen
       eventId: id,
       artistId: event.artistId || "",
       createdBy: uid || "",
-      guestKey: uid ? "" : cleanKey(guestKey),
+      guestKey: "",
       inviterName,
       createdAt: timestampOf(now),
       active: true,
@@ -369,7 +368,7 @@ export async function openInvite({ db, uid = "", code, deviceKey = "", ip = "", 
     artist: publicArtist(resolved.artistId, resolved.artist),
     goingCount: await goingCount(db, resolved.eventId),
     viewerGoing,
-    canInvite: event.visibility === "public" || resolved.event.artistId === uid || viewerGoing,
+    canInvite: Boolean(uid) && (event.visibility === "public" || resolved.event.artistId === uid || viewerGoing),
     showGuestList: event.showGuestList,
     guests: event.showGuestList ? rsvps.map((item) => guestView(item.data)) : null,
     inviteCode: code,
@@ -413,7 +412,7 @@ export async function eventDesk({ db, uid = "", eventId }) {
     state: "ok",
     viewerGoing: Boolean(mine),
     goingCount: count,
-    canInvite: event.visibility === "public" || host || Boolean(mine),
+    canInvite: Boolean(uid) && (event.visibility === "public" || host || Boolean(mine)),
     showGuestList,
     guests: showGuestList ? rsvps.map((item) => guestView(item.data)) : null,
     host: null,

@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type ClipboardEvent, type FormEvent, type KeyboardEvent as ReactKeyboardEvent, type MouseEvent } from "react";
+import { useEffect, useRef, useState, type ClipboardEvent, type FormEvent, type KeyboardEvent as ReactKeyboardEvent } from "react";
 import { rememberInvite } from "./inviteApi";
 import { cleanEmail, validEmail } from "./profile";
 import { inviteCodeFromPath, returnPathFromSearch, safeReturnPath } from "./routes";
@@ -218,11 +218,13 @@ export function SignInSheet({ onClose, onVerified }: { onClose: () => void; onVe
 
   async function send(event: FormEvent) {
     event.preventDefault();
+    if (busyRef.current) return;
     const next = cleanEmail(email);
     if (!validEmail(next)) {
       setError("Enter a valid email address.");
       return;
     }
+    busyRef.current = true;
     setBusy(true);
     setError("");
     setNote("");
@@ -239,6 +241,7 @@ export function SignInSheet({ onClose, onVerified }: { onClose: () => void; onVe
         setError(failure.message);
       }
     } finally {
+      busyRef.current = false;
       setBusy(false);
     }
   }
@@ -301,18 +304,15 @@ export function SignInSheet({ onClose, onVerified }: { onClose: () => void; onVe
     setCooldownUntil(0);
   }
 
-  function closeFromBackdrop(event: MouseEvent<HTMLDivElement>) {
-    if (busyRef.current) return;
-    if (event.target === event.currentTarget) onClose();
-  }
-
   return (
-    <div className="signin-layer" onMouseDown={closeFromBackdrop}>
-      <div className="signin-sheet" role="dialog" aria-modal="true" aria-labelledby="signin-title" onMouseDown={(event) => event.stopPropagation()}>
+    <div className="signin-layer">
+      <div className="signin-sheet" role="dialog" aria-modal="true" aria-labelledby="signin-title">
         <div className="signin-head">
           <h2 id="signin-title">{step === "code" ? "Enter your code" : "Sign in"}</h2>
-          <button type="button" className="stage-text" onClick={onClose} disabled={busy}>
-            Close
+          <button type="button" className="sheet-x" aria-label="Close" onClick={onClose}>
+            <svg viewBox="0 0 24 24" aria-hidden="true">
+              <path d="M6 6l12 12M18 6 6 18" />
+            </svg>
           </button>
         </div>
         {step === "code" ? (
@@ -323,8 +323,15 @@ export function SignInSheet({ onClose, onVerified }: { onClose: () => void; onVe
             <CodeBoxes value={code} disabled={busy} onChange={setCode} onComplete={(next) => void confirm(next)} />
             {note ? <p className="signin-note">{note}</p> : null}
             {error ? <p className="form-error" role="alert">{error}</p> : null}
-            <button className="primary" type="submit" disabled={busy}>
-              {busy ? "Checking…" : "Continue"}
+            <button className={busy ? "primary is-wait" : "primary"} type="submit" disabled={busy} aria-busy={busy}>
+              {busy ? (
+                <span className="btn-wait">
+                  <span className="spin" aria-hidden="true" />
+                  Signing in…
+                </span>
+              ) : (
+                "Continue"
+              )}
             </button>
             <div className="signin-actions">
               <button type="button" className="text-button" disabled={busy || remain > 0} onClick={() => void resend()}>
@@ -340,8 +347,15 @@ export function SignInSheet({ onClose, onVerified }: { onClose: () => void; onVe
             <p className="signin-copy">We'll email you a 6-digit code. No password needed.</p>
             <Field label="Email" type="email" name="email" autoComplete="email" inputMode="email" placeholder="you@email.com" value={email} disabled={busy} onChange={(event) => setEmail(event.target.value)} />
             {error ? <p className="form-error" role="alert">{error}</p> : null}
-            <button className="primary" type="submit" disabled={busy}>
-              {busy ? "Sending…" : "Email me a code"}
+            <button className={busy ? "primary is-wait" : "primary"} type="submit" disabled={busy} aria-busy={busy}>
+              {busy ? (
+                <span className="btn-wait">
+                  <span className="spin" aria-hidden="true" />
+                  Sending code…
+                </span>
+              ) : (
+                "Email me a code"
+              )}
             </button>
           </form>
         )}

@@ -1,7 +1,10 @@
 import { useEffect, useState } from "react";
+import { loadWithRetry } from "./deadline";
 import { createPortal } from "react-dom";
-import { artistPath } from "./slug";
+import { Logo } from "./logo";
+import { artistPath, eventPath } from "./slug";
 import { cleanTicketUrl, formatWhen, validTicketUrl } from "./format";
+import { ShareButton } from "./share";
 import {
   coverSrc,
   createInviteLink,
@@ -20,7 +23,7 @@ import {
   type OpenInvite,
 } from "./inviteApi";
 import { explain } from "./services";
-import { Boot, BrandLockup, Empty, Page, SignInButton } from "./ui";
+import { Boot, BrandLockup, Empty, EventPhoto, Page, SignInButton } from "./ui";
 import type { EventItem } from "./data";
 
 async function copyText(url: string) {
@@ -78,8 +81,15 @@ function QrSheet({ url, message, onClose }: { url: string; message: string; onCl
 
 export function useInviteShare() {
   const [qr, setQr] = useState<{ url: string; message: string } | null>(null);
+  const [toast, setToast] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
+
+  useEffect(() => {
+    if (!toast) return;
+    const timer = window.setTimeout(() => setToast(""), 1800);
+    return () => window.clearTimeout(timer);
+  }, [toast]);
 
   async function share(eventId: string, regenerate = false) {
     setBusy(true);
@@ -91,12 +101,14 @@ export function useInviteShare() {
       if (typeof navigator.share === "function") {
         try {
           await navigator.share(payload);
+          setToast("Invite shared");
           return;
         } catch (caught) {
           if (caught instanceof DOMException && caught.name === "AbortError") return;
         }
       }
       await copyText(url);
+      setToast("Link copied");
       setQr({ url, message: invite.message });
     } catch (caught) {
       setError(explain(caught));
@@ -105,15 +117,33 @@ export function useInviteShare() {
     }
   }
 
-  const sheet = qr ? <QrSheet url={qr.url} message={qr.message} onClose={() => setQr(null)} /> : null;
+  const sheet = (
+    <>
+      {qr ? <QrSheet url={qr.url} message={qr.message} onClose={() => setQr(null)} /> : null}
+      {toast ? (
+        <span className="toast" role="status">
+          {toast}
+        </span>
+      ) : null}
+    </>
+  );
   return { share, busy, error, sheet };
 }
 
+function InviteIcon() {
+  return (
+    <svg viewBox="0 0 24 24" aria-hidden="true">
+      <path d="M15 21v-1.6a3.4 3.4 0 0 0-3.4-3.4H7.4A3.4 3.4 0 0 0 4 19.4V21" />
+      <circle cx="9.4" cy="8" r="2.7" />
+      <path d="M19 8v6M16 11h6" />
+    </svg>
+  );
+}
+
 function Face({ guest }: { guest: GuestFace }) {
-  const letter = guest.name.trim().charAt(0).toUpperCase() || "?";
   return (
     <span className="guest">
-      {guest.photoURL ? <img src={guest.photoURL} alt="" width={36} height={36} decoding="async" loading="lazy" /> : <span className="guest-letter">{letter}</span>}
+      {guest.photoURL ? <img src={guest.photoURL} alt="" width={36} height={36} decoding="async" loading="lazy" /> : <span className="guest-letter avatar-fallback"><Logo /></span>}
       <span>{guest.name}</span>
     </span>
   );
@@ -187,6 +217,11 @@ export function SocialPanel({
   desk,
   onSignIn,
   onChanged,
+  ticketUrl,
+  visibility,
+  sharePath,
+  shareTitle,
+  onEdit,
 }: {
   eventId: string;
   owner: boolean;
@@ -194,13 +229,20 @@ export function SocialPanel({
   desk: Desk | null;
   onSignIn?: () => void;
   onChanged: () => void;
+  ticketUrl: string;
+  visibility: "public" | "private";
+  sharePath: string;
+  shareTitle: string;
+  onEdit?: () => void;
 }) {
   const invite = useInviteShare();
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const going = desk?.viewerGoing === true;
-  const canInvite = owner || desk?.canInvite === true;
+  const canInvite = signedIn && (owner || visibility === "public" || desk?.canInvite === true);
   const count = desk?.goingCount ?? 0;
+  const tickets = cleanTicketUrl(ticketUrl);
+  const showTickets = tickets.length > 0 && validTicketUrl(tickets);
 
   async function go() {
     if (!signedIn) {
@@ -235,23 +277,39 @@ export function SocialPanel({
 
   return (
     <div className="social">
-      {owner ? null : going ? (
-        <div className="stage-inline">
-          <p className="going-note">You're going</p>
-          <button type="button" className="stage-text" disabled={busy} onClick={() => void undo()}>
-            Undo
+      <div className="event-actions">
+        {showTickets ? (
+          <a className="primary" href={tickets} target="_blank" rel="noopener noreferrer">
+            Get tickets
+          </a>
+        ) : null}
+        {owner ? null : going ? (
+          <div className="going-state">
+            <span className="going-pill">You're going</span>
+            <button type="button" className="text-action" disabled={busy} onClick={() => void undo()}>
+              Not going
+            </button>
+          </div>
+        ) : (
+          <button type="button" className={showTickets ? "secondary" : "primary"} disabled={busy} onClick={() => void go()}>
+            {busy ? "Saving…" : "Going"}
           </button>
+        )}
+        <div className="event-tools">
+          {canInvite ? (
+            <button type="button" className="tool-btn" aria-label="Invite" disabled={invite.busy} onClick={() => void invite.share(eventId)}>
+              <InviteIcon />
+              <span>Invite</span>
+            </button>
+          ) : null}
+          {sharePath ? <ShareButton title={shareTitle} text={shareTitle} path={sharePath} label={`Share ${shareTitle}`} /> : null}
+          {onEdit ? (
+            <button type="button" className="text-action" onClick={onEdit}>
+              Edit
+            </button>
+          ) : null}
         </div>
-      ) : (
-        <button type="button" className="primary" disabled={busy} onClick={() => void go()}>
-          {busy ? "Saving…" : "Going"}
-        </button>
-      )}
-      {canInvite ? (
-        <button type="button" className="stage-quiet invite-text" disabled={invite.busy} onClick={() => void invite.share(eventId)}>
-          Invite
-        </button>
-      ) : null}
+      </div>
       {owner && desk?.host ? <HostPanel eventId={eventId} host={desk.host} onChanged={onChanged} /> : null}
       {!owner && desk?.showGuestList && desk.guests ? (
         desk.guests.length > 0 ? (
@@ -272,7 +330,21 @@ export function SocialPanel({
   );
 }
 
-export function EventSocial({ event, owner, uid, onSignIn }: { event: EventItem; owner: boolean; uid: string; onSignIn?: () => void }) {
+export function EventSocial({
+  event,
+  owner,
+  uid,
+  onSignIn,
+  sharePath,
+  onEdit,
+}: {
+  event: EventItem;
+  owner: boolean;
+  uid: string;
+  onSignIn?: () => void;
+  sharePath: string;
+  onEdit?: () => void;
+}) {
   const [desk, setDesk] = useState<Desk | null>(null);
   const [nonce, setNonce] = useState(0);
 
@@ -292,23 +364,20 @@ export function EventSocial({ event, owner, uid, onSignIn }: { event: EventItem;
 
   useEffect(() => onRsvpChange(() => setNonce((value) => value + 1)), []);
 
-  return <SocialPanel eventId={event.id} owner={owner} signedIn={Boolean(uid)} desk={desk} onSignIn={onSignIn} onChanged={() => setNonce((value) => value + 1)} />;
-}
-
-export function InviteCorner({ eventId }: { eventId: string }) {
-  const invite = useInviteShare();
   return (
-    <>
-      <button type="button" className="share-btn" aria-label="Invite" disabled={invite.busy} onClick={() => void invite.share(eventId)}>
-        <svg viewBox="0 0 24 24" aria-hidden="true">
-          <circle cx="6" cy="12" r="2.2" />
-          <circle cx="17" cy="7" r="2.2" />
-          <circle cx="17" cy="17" r="2.2" />
-          <path d="M8 11.2 14.8 8.2M8 12.8l6.8 3" />
-        </svg>
-      </button>
-      {invite.sheet}
-    </>
+    <SocialPanel
+      eventId={event.id}
+      owner={owner}
+      signedIn={Boolean(uid)}
+      desk={desk}
+      onSignIn={onSignIn}
+      onChanged={() => setNonce((value) => value + 1)}
+      ticketUrl={event.ticketUrl}
+      visibility={event.visibility}
+      sharePath={sharePath}
+      shareTitle={event.title}
+      onEdit={onEdit}
+    />
   );
 }
 
@@ -350,7 +419,7 @@ export function InvitePage({
   useEffect(() => {
     let live = true;
     setStatus("loading");
-    void openInviteLink(code)
+    void loadWithRetry(() => openInviteLink(code))
       .then(async (next) => {
         if (!live) return;
         if (next.state === "ok") rememberInvite(code);
@@ -382,7 +451,7 @@ export function InvitePage({
       <Page back={back} onHome={onHome} avatar={onSignIn ? <SignInButton onClick={onSignIn} /> : undefined}>
         <Empty title="Couldn't open this invite" body="Check your connection and try again." />
         <button className="primary" type="button" onClick={() => setNonce((value) => value + 1)}>
-          Try again
+          Retry
         </button>
       </Page>
     );
@@ -391,8 +460,6 @@ export function InvitePage({
 
   const event = opened.event;
   const when = formatWhen(new Date(event.startsAt), "detail");
-  const tickets = cleanTicketUrl(event.ticketUrl);
-  const showTickets = tickets.length > 0 && validTicketUrl(tickets);
   const owner = uid !== "" && uid === event.artistId;
   const desk: Desk = {
     state: "ok",
@@ -415,11 +482,9 @@ export function InvitePage({
         </header>
         <main className="stage-column invite-column">
           <article className="night is-open">
-            {event.imageURL ? (
-              <div className="night-photo-wrap">
-                <img className="night-photo" src={coverSrc(event.imageURL)} alt="" width={1200} height={675} decoding="async" fetchPriority="high" />
-              </div>
-            ) : null}
+            <div className="night-photo-wrap">
+              <EventPhoto url={event.imageURL ? coverSrc(event.imageURL) : ""} alt="" priority />
+            </div>
             <div className="night-detail">
               <h1 className="invite-title">{event.title}</h1>
               <p className="night-detail-when">{when}</p>
@@ -428,17 +493,23 @@ export function InvitePage({
                 <span>{event.city}</span>
               </p>
               {opened.artist ? (
-                <button type="button" className="stage-text" onClick={() => go(artistPath(opened.artist?.slug || ""))}>
+                <button type="button" className="artist-jump" onClick={() => go(artistPath(opened.artist?.slug || ""))}>
                   {opened.artist.name}
                 </button>
               ) : null}
               {event.description ? <p className="stage-prose">{event.description}</p> : null}
-              {showTickets ? (
-                <a className="primary stage-tickets" href={tickets} target="_blank" rel="noopener noreferrer">
-                  Get tickets
-                </a>
-              ) : null}
-              <SocialPanel eventId={event.id} owner={owner} signedIn={Boolean(uid)} desk={desk} onSignIn={onSignIn} onChanged={() => setNonce((value) => value + 1)} />
+              <SocialPanel
+                eventId={event.id}
+                owner={owner}
+                signedIn={Boolean(uid)}
+                desk={desk}
+                onSignIn={onSignIn}
+                onChanged={() => setNonce((value) => value + 1)}
+                ticketUrl={event.ticketUrl}
+                visibility={event.visibility}
+                sharePath={event.visibility === "public" && opened.artist?.slug ? eventPath(opened.artist.slug, event.slug) : ""}
+                shareTitle={event.title}
+              />
             </div>
           </article>
         </main>

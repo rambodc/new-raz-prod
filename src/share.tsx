@@ -1,5 +1,15 @@
 import { useEffect, useState } from "react";
 
+export function ShareIcon() {
+  return (
+    <svg viewBox="0 0 24 24" aria-hidden="true">
+      <path d="M12 15.5V4.5" />
+      <path d="m7.8 8.2 4.2-4.2 4.2 4.2" />
+      <path d="M8 10.5H6.8A2.3 2.3 0 0 0 4.5 12.8v6.4A2.3 2.3 0 0 0 6.8 21.5h10.4a2.3 2.3 0 0 0 2.3-2.3v-6.4a2.3 2.3 0 0 0-2.3-2.3H16" />
+    </svg>
+  );
+}
+
 export function ShareButton({ title, text, path, label }: { title: string; text: string; path: string; label: string }) {
   const [copied, setCopied] = useState(false);
 
@@ -39,12 +49,7 @@ export function ShareButton({ title, text, path, label }: { title: string; text:
   return (
     <>
       <button type="button" className="share-btn" aria-label={label} onClick={() => void share()}>
-        <svg viewBox="0 0 24 24" aria-hidden="true">
-          <circle cx="6" cy="12" r="2.2" />
-          <circle cx="17" cy="7" r="2.2" />
-          <circle cx="17" cy="17" r="2.2" />
-          <path d="M8 11.2 14.8 8.2M8 12.8l6.8 3" />
-        </svg>
+        <ShareIcon />
       </button>
       {copied ? (
         <span className="toast" role="status">

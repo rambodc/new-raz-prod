@@ -49,8 +49,19 @@ export async function renderOgCard({ photo, title, subtitle }) {
   ensureFont();
   const canvas = createCanvas(WIDTH, HEIGHT);
   const ctx = canvas.getContext("2d");
-  ctx.fillStyle = "#14080d";
+  const wash = ctx.createLinearGradient(0, 0, WIDTH, HEIGHT);
+  wash.addColorStop(0, "#3a1222");
+  wash.addColorStop(0.45, "#14080d");
+  wash.addColorStop(1, "#2a0c18");
+  ctx.fillStyle = wash;
   ctx.fillRect(0, 0, WIDTH, HEIGHT);
+  if (!photo || !photo.length) {
+    const glow = ctx.createRadialGradient(860, 180, 20, 860, 220, 520);
+    glow.addColorStop(0, "rgba(216, 30, 91, 0.55)");
+    glow.addColorStop(1, "rgba(216, 30, 91, 0)");
+    ctx.fillStyle = glow;
+    ctx.fillRect(0, 0, WIDTH, HEIGHT);
+  }
   if (photo && photo.length) {
     try {
       const image = await loadImage(photo);
