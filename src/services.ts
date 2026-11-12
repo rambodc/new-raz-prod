@@ -3,6 +3,7 @@ import { onAuthStateChanged, signInWithCustomToken, signOut, type Auth } from "f
 import { doc, getDoc, serverTimestamp, updateDoc } from "firebase/firestore";
 import { httpsCallable, FunctionsError } from "firebase/functions";
 import { getDownloadURL, ref, uploadBytes } from "firebase/storage";
+import { deadline, isTimeout } from "./deadline";
 import { client } from "./firebase";
 import { readInvite } from "./inviteApi";
 import { readProfile, type Profile } from "./profile";
@@ -10,6 +11,7 @@ import { resizeImage } from "./resizeImage";
 
 export type Session =
   | { status: "loading" }
+  | { status: "error" }
   | { status: "signed-out" }
   | { status: "signed-in"; uid: string; email: string; profile: Profile | null };
 
@@ -60,7 +62,11 @@ export function explain(error: unknown): string {
 export function watchSession(onChange: (session: Session) => void): () => void {
   let stop = () => {};
   let cancelled = false;
-  void client().then(({ auth, db }) => {
+  void client().then(async ({ auth, db }) => {
+    if (cancelled) return;
+    if (typeof auth.authStateReady === "function") {
+      await Promise.race([auth.authStateReady(), new Promise((resolve) => setTimeout(resolve, 8000))]);
+    }
     if (cancelled) return;
     stop = onAuthStateChanged(auth, (user) => {
       if (!user) {
@@ -71,8 +77,9 @@ export function watchSession(onChange: (session: Session) => void): () => void {
         .then((profile) => {
           onChange({ status: "signed-in", uid: user.uid, email: user.email ?? "", profile });
         })
-        .catch(() => {
-          onChange({ status: "signed-in", uid: user.uid, email: user.email ?? "", profile: null });
+        .catch((error) => {
+          if (isTimeout(error)) onChange({ status: "error" });
+          else onChange({ status: "signed-in", uid: user.uid, email: user.email ?? "", profile: null });
         });
     });
   }).catch(() => {
@@ -86,12 +93,13 @@ export function watchSession(onChange: (session: Session) => void): () => void {
 
 async function loadProfile(db: Awaited<ReturnType<typeof client>>["db"], uid: string): Promise<Profile | null> {
   let last: unknown;
-  for (let attempt = 0; attempt < 3; attempt += 1) {
+  for (let attempt = 0; attempt < 2; attempt += 1) {
     try {
-      const snap = await getDoc(doc(db, "users", uid));
+      const snap = await deadline(getDoc(doc(db, "users", uid)));
       return snap.exists() ? readProfile(snap.data()) : null;
     } catch (error) {
       last = error;
+      if (isTimeout(error) || attempt === 1) break;
       await new Promise((resolve) => setTimeout(resolve, 150 * (attempt + 1)));
     }
   }

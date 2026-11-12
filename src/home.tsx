@@ -2,7 +2,8 @@ import type { MouseEvent, ReactNode } from "react";
 import { loadHome, type Artist } from "./data";
 import type { Profile } from "./profile";
 import { artistHref } from "./slug";
-import { Avatar, Chevron, Cover, Empty, Scene, SignInButton, TopBar, openLink, useLoad } from "./ui";
+import { ShareButton } from "./share";
+import { Avatar, Cover, Empty, Scene, SignInButton, TopBar, openLink, useLoad } from "./ui";
 
 export function HomeScreen({
   uid,
@@ -96,14 +97,28 @@ function HomeBody({
         </div>
         ) : null}
         {artist && home.artist ? (
-          <section className="mine">
-            <p>Your artist page</p>
-            <a href={artistHref(home.artist)} onClick={openMine}>
-              <Cover url={home.artist.imageURL} alt="" width={1200} height={675} />
-              <span className="mine-shade" />
-              <span className="mine-name">{home.artist.name}</span>
-              <Chevron />
-            </a>
+          <section className="studio">
+            <div className="studio-card">
+              <a className="studio-cover" href={artistHref(home.artist)} onClick={openMine}>
+                <Cover url={home.artist.imageURL} alt="" width={480} height={640} />
+              </a>
+              <div className="studio-copy">
+                <p className="studio-kicker">Your page</p>
+                <h2>{home.artist.name}</h2>
+                <div className="studio-actions">
+                  <a className="primary" href={artistHref(home.artist)} onClick={openMine}>
+                    View page
+                  </a>
+                  <button type="button" className="secondary" onClick={() => go(`/artist/${home.artist?.id}/edit`)}>
+                    Edit
+                  </button>
+                  <button type="button" className="secondary" onClick={() => go("/events/new")}>
+                    New event
+                  </button>
+                  <ShareButton title={home.artist.name} text={home.artist.name} path={artistHref(home.artist)} label={`Share ${home.artist.name}`} />
+                </div>
+              </div>
+            </div>
           </section>
         ) : null}
         <h2 className="section-label">Artists</h2>

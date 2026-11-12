@@ -128,12 +128,16 @@ test("invite codes are short and unguessable", () => {
   assert.equal(inviteLine("", "Show1"), "Someone invited you to Show1");
 });
 
-test("public events can be shared by anyone, private events only by the host or someone going", async () => {
+test("a signed-in person can invite to a public event, and a private event only the host or someone going", async () => {
   const db = memoryDb(seedHost());
-  const guest = await createInvite({ db, uid: "", eventId: "show", guestKey: "a".repeat(32), now: NOW, timestampOf: ts, newCode: () => "abcdefghjk" });
+  await assert.rejects(
+    createInvite({ db, uid: "", eventId: "show", guestKey: "a".repeat(32), now: NOW, timestampOf: ts, newCode: () => "abcdefghjk" }),
+    (error) => error.reason === "unauthenticated",
+  );
+  const guest = await createInvite({ db, uid: "rambod", eventId: "show", now: NOW, timestampOf: ts, newCode: () => "abcdefghjk" });
   assert.equal(guest.code, "abcdefghjk");
-  assert.equal(guest.message, "Someone invited you to Show1");
-  const again = await createInvite({ db, uid: "", eventId: "show", guestKey: "a".repeat(32), now: NOW + 1000, timestampOf: ts, newCode: () => "bbbbbbbbbb" });
+  assert.equal(guest.message, "Rambod invited you to Show1");
+  const again = await createInvite({ db, uid: "rambod", eventId: "show", now: NOW + 1000, timestampOf: ts, newCode: () => "bbbbbbbbbb" });
   assert.equal(again.code, "abcdefghjk");
   assert.equal(again.reused, true);
 
@@ -145,7 +149,7 @@ test("public events can be shared by anyone, private events only by the host or 
   );
   await assert.rejects(
     createInvite({ db, uid: "", eventId: "secret", guestKey: "b".repeat(32), now: NOW, timestampOf: ts }),
-    (error) => error.reason === "forbidden",
+    (error) => error.reason === "unauthenticated",
   );
 });
 

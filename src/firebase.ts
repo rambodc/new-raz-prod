@@ -1,6 +1,6 @@
 import { initializeApp } from "firebase/app";
 import { browserLocalPersistence, connectAuthEmulator, getAuth, setPersistence, type Auth } from "firebase/auth";
-import { connectFirestoreEmulator, getFirestore, type Firestore } from "firebase/firestore";
+import { connectFirestoreEmulator, initializeFirestore, type Firestore } from "firebase/firestore";
 import { connectFunctionsEmulator, getFunctions, type Functions } from "firebase/functions";
 import { connectStorageEmulator, getStorage, type FirebaseStorage } from "firebase/storage";
 
@@ -45,7 +45,9 @@ async function init(): Promise<FirebaseClient> {
     appId: envValue(import.meta.env.VITE_FIREBASE_APP_ID, "1:555086285693:web:9b4efe2d2aa152f4849a14"),
   });
   const auth = getAuth(app);
-  const db = getFirestore(app);
+  // The default streaming channel can stay pending after the first read, so the next
+  // page waits on a promise that never settles until a full reload opens a new channel.
+  const db = initializeFirestore(app, { experimentalForceLongPolling: true });
   const storage = getStorage(app);
   const functions = getFunctions(app, "us-central1");
   if (import.meta.env.VITE_USE_EMULATORS === "true") {
