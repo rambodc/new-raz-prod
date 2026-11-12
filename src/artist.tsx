@@ -10,8 +10,9 @@ import type { Profile } from "./profile";
 import type { Route } from "./routes";
 import { currentPath } from "./routes";
 import { explain } from "./services";
+import { EventSocial, InviteCorner, StatusScreen } from "./invite";
 import { ShareButton } from "./share";
-import { artistPath, eventPath, trackPath } from "./slug";
+import { artistPath, trackPath } from "./slug";
 import { Boot, BrandLockup, Chevron, Cover, Empty, Page, SignInButton } from "./ui";
 
 function Expand({ open, id, children }: { open: boolean; id?: string; children: ReactNode }) {
@@ -369,6 +370,7 @@ export function ArtistStage({
       </Page>
     );
   }
+  if (view?.hiddenEvent) return <StatusScreen state="private" back={back} onHome={onHome} onSignIn={onSignIn} />;
   if (status === "ready" && view && !view.page.artist) {
     return (
       <Page back={back} onHome={onHome} avatar={signIn}>
@@ -389,6 +391,10 @@ export function ArtistStage({
   const editing = route.name === "artist-edit" && owner;
   const creating = creatable && owner;
   const editingEventId = route.name === "event-edit" && route.id && owner ? route.id : null;
+  const askedForEvent = route.name === "event" || (route.name === "event-edit" && route.id !== null) || (route.name === "share" && route.eventSlug !== null);
+  if (askedForEvent && !creating && !openEventId && !editingEventId) {
+    return <StatusScreen state="private" back={back} onHome={onHome} onSignIn={onSignIn} />;
+  }
 
   return (
     <StageView
@@ -611,7 +617,9 @@ function StageView({
                               event={event}
                               open={openEventId === event.id}
                               owner={owner}
+                              uid={uid}
                               artistSlug={artist.slug}
+                              onSignIn={onSignIn}
                               replace={replace}
                               onEdit={() => replace(`/event/${event.id}/edit`)}
                               onDelete={async () => {
@@ -758,7 +766,9 @@ function StageView({
                               event={event}
                               open={openEventId === event.id}
                               owner={owner}
+                              uid={uid}
                               artistSlug={artist.slug}
+                              onSignIn={onSignIn}
                               replace={replace}
                               onEdit={() => replace(`/event/${event.id}/edit`)}
                               onDelete={async () => {
@@ -787,7 +797,9 @@ function EventCard({
   event,
   open,
   owner,
+  uid,
   artistSlug,
+  onSignIn,
   replace,
   onEdit,
   onDelete,
@@ -795,7 +807,9 @@ function EventCard({
   event: EventItem;
   open: boolean;
   owner: boolean;
+  uid: string;
   artistSlug: string;
+  onSignIn?: () => void;
   replace: (path: string) => void;
   onEdit: () => void;
   onDelete: () => Promise<void>;
@@ -826,12 +840,12 @@ function EventCard({
   }
 
   const artistUrl = artistPath(artistSlug);
-  const eventUrl = event.visibility === "public" ? eventPath(artistSlug, event.slug) : `/event/${event.id}`;
-  const canShare = event.visibility === "public";
+  const eventUrl = event.visibility === "public" ? artistPath(artistSlug) + `/${event.slug}` : `/event/${event.id}`;
+  const canInvite = event.visibility === "public" || owner;
 
   return (
     <article className={open ? "night is-open" : "night"} id={`event-${event.id}`}>
-      {canShare ? <ShareButton title={event.title} text={`${event.venue}, ${event.city}`} path={eventUrl} label={`Share ${event.title}`} /> : null}
+      {canInvite ? <InviteCorner eventId={event.id} /> : null}
       <button
         type="button"
         className="night-summary"
@@ -888,6 +902,7 @@ function EventCard({
             </div>
           ) : null}
           {error ? <p className="form-error" role="alert">{error}</p> : null}
+          {open ? <EventSocial event={event} owner={owner} uid={uid} onSignIn={onSignIn} /> : null}
         </div>
       </Expand>
     </article>

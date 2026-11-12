@@ -2,7 +2,8 @@ import { useEffect, useRef, useState, type FormEvent } from "react";
 import { readAudioDuration } from "./audio";
 import { CropPhoto } from "./crop";
 import { publishEvent, publishTrack, saveArtist, saveEvent, type Artist, type EventItem } from "./data";
-import { cleanBlock, cleanLine, cleanTicketUrl, combineLocal, dateInputValue, formatClock, formatDay, formatDuration, timeInputValue, validBlock, validLine, validTicketUrl } from "./format";
+import { cleanBlock, cleanLine, cleanTicketUrl, combineLocal, dateInputValue, formatDuration, timeInputValue, validBlock, validLine, validTicketUrl } from "./format";
+import { WhenFields } from "./when";
 import { PHOTO_QUALITY_HINT, assertPhotoQuality, type ImageCrop } from "./resizeImage";
 import { explain } from "./services";
 import { Field, TextArea } from "./ui";
@@ -158,6 +159,7 @@ export function EventForm({
   const [description, setDescription] = useState(event?.description ?? "");
   const [ticketUrl, setTicketUrl] = useState(event?.ticketUrl ?? "");
   const [visibility, setVisibility] = useState(event?.visibility ?? "public");
+  const [showGuestList, setShowGuestList] = useState(event?.showGuestList ?? false);
   const [file, setFile] = useState<File | null>(null);
   const [preview, setPreview] = useState(event?.imageURL ?? "");
   const [error, setError] = useState("");
@@ -209,6 +211,7 @@ export function EventForm({
       imageURL: event?.imageURL ?? "",
       ticketUrl: nextTicket,
       visibility,
+      showGuestList,
     };
     try {
       const id = creating ? await publishEvent(uid, input, file as File) : await saveReturning(event.id, input, file);
@@ -218,9 +221,6 @@ export function EventForm({
       setBusy(false);
     }
   }
-
-  const selectedDay = date ? combineLocal(date, "00:00") : null;
-  const selectedTime = time ? combineLocal("2026-01-05", time) : null;
 
   return (
     <form className="stage-form" onSubmit={onSubmit}>
@@ -251,22 +251,7 @@ export function EventForm({
       />
       <div className="stage-fields">
         <Field label="Title" value={title} maxLength={120} disabled={busy} autoComplete="off" onChange={(change) => setTitle(change.target.value)} />
-        <div className="split">
-          <label className="field">
-            <span>Date</span>
-            <span className="picker">
-              <span className={date ? "picker-value" : "picker-value is-empty"}>{selectedDay ? formatDay(selectedDay) : "Select date"}</span>
-              <input type="date" value={date} disabled={busy} onChange={(change) => setDate(change.target.value)} />
-            </span>
-          </label>
-          <label className="field">
-            <span>Time</span>
-            <span className="picker">
-              <span className={time ? "picker-value" : "picker-value is-empty"}>{selectedTime ? formatClock(selectedTime, "always") : "Select time"}</span>
-              <input type="time" value={time} disabled={busy} onChange={(change) => setTime(change.target.value)} />
-            </span>
-          </label>
-        </div>
+        <WhenFields date={date} time={time} disabled={busy} onDate={setDate} onTime={setTime} />
         <Field label="Venue" value={venue} maxLength={120} disabled={busy} autoComplete="off" onChange={(change) => setVenue(change.target.value)} />
         <Field label="City" value={city} maxLength={80} disabled={busy} autoComplete="off" onChange={(change) => setCity(change.target.value)} />
         <TextArea label="Description" value={description} maxLength={2000} rows={4} disabled={busy} onChange={(change) => setDescription(change.target.value)} />
@@ -291,7 +276,10 @@ export function EventForm({
             Private
           </button>
         </div>
-        <p className="visibility-note">{visibility === "public" ? "Anyone with the link can open this event." : "Only you can see this event. Sharing stays off."}</p>
+        <p className="visibility-note">{visibility === "public" ? "Anyone can open this event. Invite links remember who brought them." : "Only people with an invite, and guests who are going, can see this event."}</p>
+        <button type="button" className={showGuestList ? "guest-toggle is-on" : "guest-toggle"} aria-pressed={showGuestList} disabled={busy} onClick={() => setShowGuestList((value) => !value)}>
+          {showGuestList ? "Guests can see who's going" : "Guest list is hidden"}
+        </button>
       </div>
       {error ? <p className="form-error" role="alert">{error}</p> : null}
       <button className="primary" type="submit" disabled={busy} aria-busy={busy}>

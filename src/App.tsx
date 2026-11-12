@@ -1,5 +1,7 @@
 import { useEffect, useRef, useState, type FormEvent } from "react";
 import { ArtistStage } from "./artist";
+import { InvitePage } from "./invite";
+import { clearPendingRsvp, emitRsvpChange, rememberPendingRsvp, rsvpGoing, takePendingRsvp } from "./inviteApi";
 import { HomeScreen } from "./home";
 import { MiniPlayer, Playback } from "./player";
 import { cleanEmail, cleanName, validEmail, validName, type Profile } from "./profile";
@@ -94,8 +96,18 @@ export default function App() {
     go("/");
   }
 
+  useEffect(() => {
+    if (session.status !== "signed-in" || !session.profile?.firstName) return;
+    const eventId = takePendingRsvp();
+    if (!eventId) return;
+    void rsvpGoing(eventId)
+      .then(() => emitRsvpChange())
+      .catch(() => rememberPendingRsvp(eventId));
+  }, [session]);
+
   function closeAuth() {
     setAuthOpen(false);
+    if (session.status !== "signed-in") clearPendingRsvp();
     if (session.status === "signed-in") return;
     const current = parseRoute(path);
     if (current.name === "artist-edit") replace(`/artist/${current.id}`);
@@ -155,6 +167,17 @@ export default function App() {
         photoVersion={photoVersion}
         onSettings={profile ? () => go("/settings") : undefined}
         onSignIn={profile ? undefined : openSignIn}
+        go={go}
+      />
+    );
+  } else if (route.name === "invite") {
+    body = (
+      <InvitePage
+        code={route.code}
+        uid={signedIn?.uid ?? ""}
+        onSignIn={profile ? undefined : openSignIn}
+        back={backHome}
+        onHome={goHome}
         go={go}
       />
     );
