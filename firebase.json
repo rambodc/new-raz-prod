@@ -18,6 +18,7 @@
     "rewrites": [
       { "source": "/api/scene", "function": { "functionId": "sceneChat", "region": "us-central1" } },
       { "source": "/api/image", "function": { "functionId": "sceneImage", "region": "us-central1" } },
+      { "source": "/api/invite-cover", "function": { "functionId": "inviteCover", "region": "us-central1" } },
       { "source": "/*/t/*", "function": { "functionId": "sharePage", "region": "us-central1" } },
       { "source": "/*/*", "function": { "functionId": "sharePage", "region": "us-central1" } },
       { "source": "/*", "function": { "functionId": "sharePage", "region": "us-central1" } },

@@ -1,5 +1,6 @@
 import { readFile } from "node:fs/promises";
-import { injectShareMeta, isPublicEvent, previewRevision, shareMeta } from "./og.js";
+import { inviteShareMeta } from "./invites.js";
+import { injectShareMeta, isPublicEvent, ogRevision, previewRevision, shareMeta } from "./og.js";
 import { renderOgCard } from "./ogImage.js";
 import { parseSharePath } from "./slug.js";
 import { loadShareModel } from "./shares.js";
@@ -69,9 +70,28 @@ export async function ensureOgImage({ bucket, bucketName, objectPath, revision, 
   return publicObjectUrl(bucketName, objectPath, revision);
 }
 
-export async function composeSharePage({ path, origin, indexHtml, db, ensureImage }) {
+export async function composeSharePage({ path, origin, indexHtml, db, ensureImage, now = Date.now() }) {
   const parsed = parseSharePath(path);
   if (parsed.kind === "spa") return { status: 200, cache: "no-store", html: indexHtml };
+  if (parsed.kind === "invite") {
+    const meta = await inviteShareMeta({ db, origin, code: parsed.code, now });
+    let image = `${origin}/apple-touch-icon.png`;
+    if (meta.imagePath) {
+      const revision = ogRevision(["invite", parsed.code, meta.cardTitle, meta.cardSubtitle, meta.imageSource]);
+      image = await ensureImage({
+        objectPath: meta.imagePath,
+        revision,
+        photoUrl: meta.imageSource,
+        title: meta.cardTitle,
+        subtitle: meta.cardSubtitle,
+      });
+    }
+    return {
+      status: 200,
+      cache: meta.cache,
+      html: injectShareMeta(indexHtml, { title: meta.title, description: meta.description, url: meta.url, image }),
+    };
+  }
   const model = await loadShareModel(db, parsed);
   const meta = shareMeta({ origin, parsed, model });
   let image = `${origin}/apple-touch-icon.png`;

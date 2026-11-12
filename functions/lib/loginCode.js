@@ -3,6 +3,8 @@
 
 import { createHash, randomBytes, randomInt, scryptSync, timingSafeEqual } from "node:crypto";
 import { Resend } from "resend";
+import { INVITE_CODE_RE } from "./slug.js";
+import { eventHasEnded } from "./when.js";
 
 export const CODE_TTL_MS = 10 * 60 * 1000;
 export const MAX_ATTEMPTS = 5;
@@ -230,7 +232,7 @@ export async function issueLoginCode({ db, email, ip, now, sendEmail, limits = D
  * Checks a code and returns a Firebase custom token.
  * New profiles are created here (Admin SDK) so the client cannot choose its own role or email.
  */
-export async function acceptLoginCode({ db, auth, email, code, now, timestampOf, projectId = "new-raz-prod" }) {
+export async function acceptLoginCode({ db, auth, email, code, now, timestampOf, projectId = "new-raz-prod", inviteCode = "" }) {
   const normalized = normalizeEmail(email);
   if (!isValidEmail(normalized)) throw new LoginError("bad-email", "Enter a valid email address.");
   const digits = String(code ?? "").trim();
@@ -271,7 +273,8 @@ export async function acceptLoginCode({ db, auth, email, code, now, timestampOf,
 
   const user = await findOrCreateUser(auth, outcome.email);
   const canonical = user.email || outcome.email;
-  const needsProfile = await ensureProfile(db, user.uid, canonical, now, timestampOf);
+  const profile = await ensureProfile(db, user.uid, canonical, now, timestampOf);
+  if (profile.created) await attributeNewUser(db, user.uid, inviteCode, now);
   let token;
   try {
     token = await auth.createCustomToken(user.uid);
@@ -287,7 +290,7 @@ export async function acceptLoginCode({ db, auth, email, code, now, timestampOf,
     }
     throw new LoginError("token-failed", "Could not finish signing you in.");
   }
-  return { token, needsProfile };
+  return { token, needsProfile: profile.needsProfile };
 }
 
 async function ensureProfile(db, uid, email, now, timestampOf) {
@@ -303,10 +306,30 @@ async function ensureProfile(db, uid, email, now, timestampOf) {
       createdAt: timestampOf(now),
       updatedAt: timestampOf(now),
     });
-    return true;
+    return { created: true, needsProfile: true };
   }
   const data = snap.data() || {};
-  if (data.role !== "fan" && data.role !== "artist") return false;
-  if (typeof data.firstName !== "string") return false;
-  return data.firstName.trim().length === 0;
+  if (data.role !== "fan" && data.role !== "artist") return { created: false, needsProfile: false };
+  if (typeof data.firstName !== "string") return { created: false, needsProfile: false };
+  return { created: false, needsProfile: data.firstName.trim().length === 0 };
+}
+
+/** A brand-new account keeps the inviter and the code. An existing account is left alone. */
+export async function attributeNewUser(db, uid, inviteCode, now) {
+  const code = String(inviteCode || "").trim().toLowerCase();
+  if (!INVITE_CODE_RE.test(code)) return;
+  const snap = await db.doc(`invites/${code}`).get();
+  if (!snap.exists) return;
+  const invite = snap.data() || {};
+  if (invite.active !== true) return;
+  const eventId = typeof invite.eventId === "string" ? invite.eventId : "";
+  if (!eventId) return;
+  const eventSnap = await db.doc(`events/${eventId}`).get();
+  if (!eventSnap.exists || eventHasEnded(eventSnap.data()?.startsAt, now)) return;
+  const userSnap = await db.doc(`users/${uid}`).get();
+  if (!userSnap.exists) return;
+  const user = userSnap.data() || {};
+  if ("invitedBy" in user || "inviteCode" in user) return;
+  const createdBy = typeof invite.createdBy === "string" ? invite.createdBy : "";
+  await db.doc(`users/${uid}`).update({ invitedBy: createdBy, inviteCode: code });
 }

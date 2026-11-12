@@ -60,6 +60,8 @@ test("slugs stay lowercase and skip reserved words", () => {
   assert.equal(parseSharePath("/ada-vale").kind, "artist");
   assert.equal(parseSharePath("/ada-vale/river-room").eventSlug, "river-room");
   assert.equal(parseSharePath("/ada-vale/t/midnight").trackSlug, "midnight");
+  assert.equal(parseSharePath("/i/bcdefghjkm").kind, "invite");
+  assert.equal(parseSharePath("/i/bcdefghjkm").code, "bcdefghjkm");
   assert.equal(parseSharePath("/settings").kind, "spa");
   assert.equal(parseSharePath("/artist/nova").kind, "spa");
 });

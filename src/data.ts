@@ -30,6 +30,7 @@ export type EventItem = {
   imageURL: string;
   ticketUrl: string;
   visibility: Visibility;
+  showGuestList: boolean;
   slug: string;
 };
 
@@ -42,6 +43,7 @@ export type EventInput = {
   imageURL: string;
   ticketUrl: string;
   visibility: Visibility;
+  showGuestList: boolean;
 };
 
 export type Track = {
@@ -158,6 +160,7 @@ export function readEvent(id: string, data: Record<string, unknown>): EventItem 
     imageURL: asString(data.imageURL),
     ticketUrl: asString(data.ticketUrl).trim(),
     visibility,
+    showGuestList: data.showGuestList === true,
     slug,
   };
 }
@@ -262,9 +265,10 @@ export type ResolvedPage = {
   openEventId: string | null;
   highlightTrackId: string | null;
   canonicalPath: string | null;
+  hiddenEvent: boolean;
 };
 
-const emptyResolved: ResolvedPage = { page: { artist: null, events: [], tracks: [] }, openEventId: null, highlightTrackId: null, canonicalPath: null };
+const emptyResolved: ResolvedPage = { page: { artist: null, events: [], tracks: [] }, openEventId: null, highlightTrackId: null, canonicalPath: null, hiddenEvent: false };
 
 async function shareTarget(path: string, field: "eventId" | "trackId"): Promise<string | null> {
   const { db } = await client();
@@ -309,24 +313,27 @@ export async function resolveRoutePage(route: Route, uid: string): Promise<Resol
       const looked = await shareTarget(`artists/${artistId}/trackShares/${route.trackSlug}`, "trackId");
       if (looked && page.tracks.some((track) => track.id === looked)) highlightTrackId = looked;
     }
-    return { page, openEventId, highlightTrackId, canonicalPath: null };
+    return { page, openEventId, highlightTrackId, canonicalPath: null, hiddenEvent: false };
   }
   if (route.name === "artist" || route.name === "artist-edit") {
     const page = await loadArtistPage(route.id, { publicOnly: uid !== route.id });
-    return { page, openEventId: null, highlightTrackId: null, canonicalPath: canonicalFor(route, page) };
+    return { page, openEventId: null, highlightTrackId: null, canonicalPath: canonicalFor(route, page), hiddenEvent: false };
   }
   if (route.name === "event" || (route.name === "event-edit" && route.id)) {
     const eventId = route.id;
     if (!eventId) return emptyResolved;
     const event = await getEvent(eventId);
-    if (!event) return emptyResolved;
+    if (!event) return { ...emptyResolved, hiddenEvent: true };
     const page = await loadArtistPage(event.artistId, { ensureEventId: eventId, publicOnly: uid !== event.artistId });
-    const visible = page.events.some((item) => item.id === eventId) ? eventId : null;
-    return { page, openEventId: visible, highlightTrackId: null, canonicalPath: canonicalFor(route, page) };
+    if (!page.events.some((item) => item.id === event.id)) {
+      page.events.push(event);
+      page.events.sort((a, b) => a.startsAt.getTime() - b.startsAt.getTime());
+    }
+    return { page, openEventId: event.id, highlightTrackId: null, canonicalPath: canonicalFor(route, page), hiddenEvent: false };
   }
   if (route.name === "event-edit" && route.id === null && uid) {
     const page = await loadArtistPage(uid, { publicOnly: false });
-    return { page, openEventId: null, highlightTrackId: null, canonicalPath: null };
+    return { page, openEventId: null, highlightTrackId: null, canonicalPath: null, hiddenEvent: false };
   }
   return emptyResolved;
 }
@@ -392,6 +399,7 @@ export async function publishEvent(uid: string, input: EventInput, file: File): 
     imageURL: storageObjectUrl(path),
     ticketUrl: input.ticketUrl,
     visibility: input.visibility,
+    showGuestList: input.showGuestList,
     slug,
     createdAt: serverTimestamp(),
     updatedAt: serverTimestamp(),
@@ -423,6 +431,7 @@ export async function saveEvent(id: string, input: EventInput, file: File | null
     imageURL,
     ticketUrl: input.ticketUrl,
     visibility: input.visibility,
+    showGuestList: input.showGuestList,
     updatedAt: serverTimestamp(),
   });
 }

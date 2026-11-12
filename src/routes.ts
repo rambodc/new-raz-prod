@@ -1,4 +1,4 @@
-import { isSlug, RESERVED } from "./slug";
+import { isInviteCode, isSlug, RESERVED } from "./slug";
 
 export type Route =
   | { name: "home" }
@@ -8,6 +8,7 @@ export type Route =
   | { name: "event"; id: string }
   | { name: "event-edit"; id: string | null }
   | { name: "share"; artistSlug: string; eventSlug: string | null; trackSlug: string | null }
+  | { name: "invite"; code: string }
   | { name: "missing" };
 
 export function currentPath(): string {
@@ -38,6 +39,11 @@ export function parseRoute(path: string): Route {
   if (event) return { name: "event", id: decodeURIComponent(event[1]) };
 
   const parts = path.split("/").filter(Boolean);
+  if (parts[0] === "i" && parts.length === 2) {
+    const code = slugPart(parts[1]);
+    if (code && isInviteCode(code)) return { name: "invite", code };
+    return { name: "missing" };
+  }
   const artistSlug = parts.length > 0 ? slugPart(parts[0]) : null;
   if (!artistSlug || RESERVED.has(artistSlug)) return { name: "missing" };
   if (parts.length === 1) return { name: "share", artistSlug, eventSlug: null, trackSlug: null };

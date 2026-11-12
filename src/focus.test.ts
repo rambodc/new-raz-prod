@@ -13,6 +13,7 @@ function event(patch: Partial<EventItem> & Pick<EventItem, "id" | "slug" | "visi
     description: "A late set",
     imageURL: "",
     ticketUrl: "",
+    showGuestList: false,
     ...patch,
   };
 }
