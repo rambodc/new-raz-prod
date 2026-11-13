@@ -1,27 +1,10 @@
 // Wall-clock times for shows are America/Edmonton (Calgary).
-// Keep src/format.ts in step with eventEndsAt and the zone math.
+// Keep src/format.ts in step with this zone math.
 
 export const SHOW_ZONE = "America/Edmonton";
 
 const WEEKDAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
-
-export function asDate(value) {
-  if (value instanceof Date) return Number.isNaN(value.getTime()) ? null : value;
-  if (value && typeof value.toDate === "function") {
-    const date = value.toDate();
-    return date instanceof Date && !Number.isNaN(date.getTime()) ? date : null;
-  }
-  if (typeof value === "number" && Number.isFinite(value)) {
-    const date = new Date(value);
-    return Number.isNaN(date.getTime()) ? null : date;
-  }
-  if (typeof value === "string" && value) {
-    const date = new Date(value);
-    return Number.isNaN(date.getTime()) ? null : date;
-  }
-  return null;
-}
 
 function partsMap(date, timeZone) {
   const parts = new Intl.DateTimeFormat("en-US", {
@@ -74,26 +57,6 @@ export function zonedInstant(year, month, day, hour, minute, timeZone = SHOW_ZON
   return new Date(instant);
 }
 
-/**
- * An invite lasts through the night. It ends at 8:00 America/Edmonton
- * on the calendar day after the show starts.
- */
-export function eventEndsAt(startsAt, timeZone = SHOW_ZONE) {
-  const start = asDate(startsAt);
-  if (!start) return null;
-  const wall = zoneParts(start, timeZone);
-  const noon = zonedInstant(wall.year, wall.month, wall.day, 12, 0, timeZone);
-  if (!noon) return null;
-  const next = zoneParts(new Date(noon.getTime() + 24 * 60 * 60 * 1000), timeZone);
-  return zonedInstant(next.year, next.month, next.day, 8, 0, timeZone);
-}
-
-export function eventHasEnded(startsAt, now, timeZone = SHOW_ZONE) {
-  const ends = eventEndsAt(startsAt, timeZone);
-  if (!ends) return false;
-  return now >= ends.getTime();
-}
-
 function clock(hour24, minute, minutes) {
   const suffix = hour24 >= 12 ? "PM" : "AM";
   let hour = hour24 % 12;
@@ -107,11 +70,4 @@ export function formatWhen(date, kind, timeZone = SHOW_ZONE) {
   const wall = zoneParts(date, timeZone);
   const day = `${WEEKDAYS[wall.weekday]}, ${MONTHS[wall.month - 1]} ${wall.day}`;
   return `${day} • ${clock(wall.hour, wall.minute, kind === "detail" ? "always" : "if-needed")}`;
-}
-
-/** Date line for a public invite card. No venue. */
-export function formatEventWhen(startsAt, timeZone = SHOW_ZONE) {
-  const date = asDate(startsAt);
-  if (!date) return "";
-  return formatWhen(date, "detail", timeZone);
 }

@@ -13,10 +13,9 @@ describe("routes", () => {
     expect(parseRoute("/ada-vale")).toEqual({ name: "share", artistSlug: "ada-vale", eventSlug: null, trackSlug: null });
     expect(parseRoute("/ada-vale/river-room")).toEqual({ name: "share", artistSlug: "ada-vale", eventSlug: "river-room", trackSlug: null });
     expect(parseRoute("/ada-vale/t/midnight")).toEqual({ name: "share", artistSlug: "ada-vale", eventSlug: null, trackSlug: "midnight" });
-    expect(parseRoute("/i/abcdefghjk")).toEqual({ name: "invite", code: "abcdefghjk" });
-    expect(parseRoute("/i/nope")).toEqual({ name: "missing" });
+    expect(parseRoute("/i/abcdefghjk")).toEqual({ name: "missing" });
     expect(parseRoute("/signin")).toEqual({ name: "signin" });
-    expect(safeReturnPath("/i/abcdefghjk")).toBe("/i/abcdefghjk");
+    expect(safeReturnPath("/ada-vale/river-room")).toBe("/ada-vale/river-room");
     expect(safeReturnPath("/signin?return=/")).toBe("");
     expect(safeReturnPath("//evil.example")).toBe("");
     expect(parseRoute("/login")).toEqual({ name: "missing" });

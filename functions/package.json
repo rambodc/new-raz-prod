@@ -8,7 +8,7 @@
   },
   "scripts": {
     "test": "node --test test/*.test.js",
-    "lint": "node --check index.js && node --check lib/checkin.js && node --check lib/sceneSchema.js && node --check lib/cards.js && node --check lib/event.js && node --check lib/sceneChat.js && node --check lib/webSearch.js && node --check lib/imageFile.js && node --check lib/images.js && node --check lib/loginCode.js && node --check lib/emailChange.js && node --check lib/roles.js && node --check lib/slug.js && node --check lib/og.js && node --check lib/ogImage.js && node --check lib/shares.js && node --check lib/sharePage.js && node --check lib/when.js && node --check lib/invites.js && node --check scripts/seed-admin.mjs && node --check ../scripts/set-role.mjs"
+    "lint": "node --check index.js && node --check lib/checkin.js && node --check lib/sceneSchema.js && node --check lib/cards.js && node --check lib/event.js && node --check lib/sceneChat.js && node --check lib/webSearch.js && node --check lib/imageFile.js && node --check lib/images.js && node --check lib/loginCode.js && node --check lib/emailChange.js && node --check lib/roles.js && node --check lib/slug.js && node --check lib/og.js && node --check lib/ogImage.js && node --check lib/shares.js && node --check lib/sharePage.js && node --check lib/when.js && node --check scripts/seed-admin.mjs && node --check ../scripts/set-role.mjs"
   },
   "dependencies": {
     "@napi-rs/canvas": "^0.1.80",

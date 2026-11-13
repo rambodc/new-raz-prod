@@ -2,7 +2,7 @@ import { useEffect, useRef, useState, type FormEvent, type ReactNode, type Trans
 import { ownsArtist } from "./access";
 import { loadWithRetry } from "./deadline";
 import { ARTIST_EVENT_LIMIT, canonicalFor, deleteEvent, deleteTrack, focusFromPage, focusReady, loadArtistPage, renameTrack, resolveRoutePage, saveTrackOrder, type Artist, type EventItem, type ResolvedPage, type Track } from "./data";
-import { EventPage } from "./eventPage";
+import { EventActions, EventPage } from "./eventPage";
 import { ArtistForm, EventForm, TrackForm } from "./forms";
 import { splitByTime } from "./events";
 import { cleanLine, formatDuration, formatWhen, validLine } from "./format";
@@ -12,7 +12,6 @@ import type { Profile } from "./profile";
 import type { Route } from "./routes";
 import { currentPath } from "./routes";
 import { explain } from "./services";
-import { EventSocial, StatusScreen } from "./invite";
 import { ShareButton } from "./share";
 import { artistPath, eventPath, trackPath } from "./slug";
 import { Boot, BrandLockup, Chevron, Cover, Empty, EventPhoto, Page, SignInButton } from "./ui";
@@ -269,8 +268,8 @@ export function ArtistStage({
         alive = false;
       };
     }
-    // A slug that is not on this page is not a public event we already have. Do not
-    // block the open animation, and do not read a private share lookup, when the list is complete.
+    // A slug that is not already on this page is missing from a complete list. Do not
+    // block the open animation for another lookup.
     if (focus?.sameArtist && current && focus.pendingEvent && !focus.pendingTrack && current.page.events.length < ARTIST_EVENT_LIMIT) {
       setStatus("ready");
       setView((existing) => {
@@ -309,7 +308,7 @@ export function ArtistStage({
   async function reload(ensureEventId?: string) {
     const id = viewRef.current?.page.artist?.id;
     if (!id) return;
-    const page = await loadArtistPage(id, { ensureEventId, publicOnly: uid !== id });
+    const page = await loadArtistPage(id, { ensureEventId });
     setView((current) => (current ? { ...current, page } : current));
   }
 
@@ -325,7 +324,6 @@ export function ArtistStage({
       </Page>
     );
   }
-  if (view?.hiddenEvent) return <StatusScreen state="private" back={back} onHome={onHome} onSignIn={onSignIn} />;
   if (!view?.page.artist) {
     if (status === "loading") return <Boot />;
     return (
@@ -348,14 +346,21 @@ export function ArtistStage({
   const editingEventId = route.name === "event-edit" && route.id && owner ? route.id : null;
   if (route.name === "share" && route.eventSlug) {
     const match = view.page.events.find((item) => item.slug === route.eventSlug);
-    const allowed = Boolean(match && (match.visibility === "public" || owner));
-    const leave = () => toArtist(artistPath(artist.slug));
-    if (!allowed || !match) return <StatusScreen state="private" back={leave} onHome={onHome} onSignIn={onSignIn} />;
-    return <EventPage event={match} artist={artist} uid={uid} onSignIn={onSignIn} onBack={leave} onHome={onHome} go={go} />;
+    if (match) {
+      const leave = () => toArtist(artistPath(artist.slug));
+      return <EventPage event={match} artist={artist} uid={uid} onSignIn={onSignIn} onBack={leave} onHome={onHome} go={go} />;
+    }
   }
   const askedForEvent = route.name === "event" || (route.name === "event-edit" && route.id !== null);
   if (askedForEvent && !creating && !openEventId && !editingEventId) {
-    return <StatusScreen state="private" back={back} onHome={onHome} onSignIn={onSignIn} />;
+    return (
+      <Page back={back} onHome={onHome} avatar={signIn}>
+        <Empty title="This page isn't here" body="It may have been removed." />
+        <button className="primary" type="button" onClick={() => go("/")}>
+          Back home
+        </button>
+      </Page>
+    );
   }
 
   return (
@@ -583,9 +588,7 @@ function StageView({
                               event={event}
                               open={shownId === event.id}
                               owner={owner}
-                              uid={uid}
                               artistSlug={artist.slug}
-                              onSignIn={onSignIn}
                               onToggle={() => setPicked(shownId === event.id ? null : event.id)}
                               onEdit={() => replace(`/event/${event.id}/edit`)}
                               onDelete={async () => {
@@ -732,9 +735,7 @@ function StageView({
                               event={event}
                               open={shownId === event.id}
                               owner={owner}
-                              uid={uid}
                               artistSlug={artist.slug}
-                              onSignIn={onSignIn}
                               onToggle={() => setPicked(shownId === event.id ? null : event.id)}
                               onEdit={() => replace(`/event/${event.id}/edit`)}
                               onDelete={async () => {
@@ -763,9 +764,7 @@ function EventCard({
   event,
   open,
   owner,
-  uid,
   artistSlug,
-  onSignIn,
   onToggle,
   onEdit,
   onDelete,
@@ -773,9 +772,7 @@ function EventCard({
   event: EventItem;
   open: boolean;
   owner: boolean;
-  uid: string;
   artistSlug: string;
-  onSignIn?: () => void;
   onToggle: () => void;
   onEdit: () => void;
   onDelete: () => Promise<void>;
@@ -803,7 +800,7 @@ function EventCard({
     }
   }
 
-  const sharePath = event.visibility === "public" ? eventPath(artistSlug, event.slug) : "";
+  const sharePath = event.slug ? eventPath(artistSlug, event.slug) : "";
 
   return (
     <article className={open ? "night is-open" : "night"} id={`event-${event.id}`}>
@@ -818,10 +815,7 @@ function EventCard({
           <Cover url={event.imageURL} alt="" width={76} height={76} />
         </span>
         <span className="night-copy">
-          <span className="night-title">
-            {event.title}
-            {event.visibility === "private" ? <span className="private-mark">Private</span> : null}
-          </span>
+          <span className="night-title">{event.title}</span>
           <span className="night-meta">{formatWhen(event.startsAt, "card")}</span>
           <span className="night-meta">
             {event.venue}, {event.city}
@@ -856,7 +850,7 @@ function EventCard({
             </div>
           ) : null}
           {error ? <p className="form-error" role="alert">{error}</p> : null}
-          {open ? <EventSocial event={event} owner={owner} uid={uid} onSignIn={onSignIn} sharePath={sharePath} /> : null}
+          {open ? <EventActions ticketUrl={event.ticketUrl} sharePath={sharePath} shareTitle={event.title} /> : null}
         </div>
       </Expand>
     </article>

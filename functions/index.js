@@ -4,7 +4,6 @@ import { getFirestore, Timestamp } from "firebase-admin/firestore";
 import { getStorage } from "firebase-admin/storage";
 import { onDocumentWritten } from "firebase-functions/v2/firestore";
 import { HttpsError, onCall, onRequest } from "firebase-functions/v2/https";
-import { InviteError, createInvite as makeInvite, deactivateInvite as disableInvite, eventDesk as loadDesk, inviteCover as loadInviteCover, openInvite as readInvite, rsvpCancel as undoRsvp, rsvpGoing as goingRsvp } from "./lib/invites.js";
 import { ensureOgImage, handleShareRequest } from "./lib/sharePage.js";
 import { syncArtistRecord, syncEventRecord, syncTrackRecord } from "./lib/shares.js";
 import { defineSecret } from "firebase-functions/params";
@@ -22,7 +21,7 @@ const options = { region: "us-central1", maxInstances: 10 };
 initializeApp({ storageBucket: BUCKET });
 
 /** Bump when the deployed functions change, so a deploy can be confirmed end to end. */
-export const FUNCTIONS_VERSION = "2026.11.12-invites";
+export const FUNCTIONS_VERSION = "2026.11.13-public";
 
 const imageOptions = { region: "us-central1", memory: "1GiB", timeoutSeconds: 60, maxInstances: 5 };
 
@@ -57,7 +56,7 @@ export const shareArtist = onDocumentWritten({ document: "artists/{artistId}", .
 export const shareEvent = onDocumentWritten({ document: "events/{eventId}", ...imageOptions }, async (event) => {
   const after = event.data?.after?.data();
   if (!after) return;
-  await syncEventRecord(getFirestore(), getStorage().bucket(), event.params.eventId, after, saveOg);
+  await syncEventRecord(getFirestore(), event.params.eventId, after, saveOg);
 });
 
 export const shareTrack = onDocumentWritten({ document: "artists/{artistId}/tracks/{trackId}", ...imageOptions }, async (event) => {
@@ -298,144 +297,11 @@ export const verifyLoginCode = onCall({ ...options, timeoutSeconds: 30, invoker:
       auth: getAuth(),
       email: request.data?.email,
       code: request.data?.code,
-      inviteCode: request.data?.inviteCode,
       now: Date.now(),
       timestampOf: (ms) => Timestamp.fromMillis(ms),
       projectId: process.env.GCLOUD_PROJECT || "new-raz-prod",
     });
   } catch (error) {
     throw toLoginHttpsError(error);
-  }
-});
-
-function toInviteHttpsError(error) {
-  if (!(error instanceof InviteError)) {
-    console.error("invite function failed", error?.code || error?.name || "error");
-    return new HttpsError("internal", "Something went wrong. Try again.");
-  }
-  const messages = {
-    "bad-input": ["invalid-argument", error.message],
-    forbidden: ["permission-denied", error.message],
-    "not-found": ["not-found", error.message],
-    unauthenticated: ["unauthenticated", "Sign in first."],
-    "rate-limited": ["resource-exhausted", "Too many requests. Try again later."],
-    ended: ["failed-precondition", "This event has ended."],
-    unavailable: ["unavailable", "Could not create an invite. Try again."],
-  };
-  const [code, message] = messages[error.reason] ?? ["internal", "Something went wrong. Try again."];
-  return new HttpsError(code, message, { reason: error.reason });
-}
-
-const inviteOptions = { ...options, timeoutSeconds: 30, invoker: "public" };
-const publicOrigin = process.env.PUBLIC_ORIGIN || "https://new-raz-prod.web.app";
-
-/** Creates or reuses the caller's invite link. Signed-out visitors can share a public event. */
-export const createInvite = onCall(inviteOptions, async (request) => {
-  try {
-    return await makeInvite({
-      db: getFirestore(),
-      uid: request.auth?.uid || "",
-      eventId: request.data?.eventId,
-      guestKey: request.data?.guestKey,
-      regenerate: request.data?.regenerate === true,
-      now: Date.now(),
-      timestampOf: (ms) => Timestamp.fromMillis(ms),
-    });
-  } catch (error) {
-    throw toInviteHttpsError(error);
-  }
-});
-
-/** Host only. Turns an invite off and drops access that never became an RSVP. */
-export const deactivateInvite = onCall(inviteOptions, async (request) => {
-  try {
-    return await disableInvite({
-      db: getFirestore(),
-      uid: request.auth?.uid || "",
-      code: request.data?.code,
-      now: Date.now(),
-    });
-  } catch (error) {
-    throw toInviteHttpsError(error);
-  }
-});
-
-/** Validates /i/{code}. Private event fields are returned only for an active, unexpired invite. */
-export const openInvite = onCall(inviteOptions, async (request) => {
-  try {
-    return await readInvite({
-      db: getFirestore(),
-      uid: request.auth?.uid || "",
-      code: request.data?.code,
-      deviceKey: request.data?.deviceKey,
-      ip: clientIp(request),
-      now: Date.now(),
-      timestampOf: (ms) => Timestamp.fromMillis(ms),
-    });
-  } catch (error) {
-    throw toInviteHttpsError(error);
-  }
-});
-
-/** What this person is allowed to see: a count, the guest list, or the host desk. */
-export const eventDesk = onCall(inviteOptions, async (request) => {
-  try {
-    return await loadDesk({ db: getFirestore(), uid: request.auth?.uid || "", eventId: request.data?.eventId });
-  } catch (error) {
-    throw toInviteHttpsError(error);
-  }
-});
-
-/** Records Going, attributes the invite, and emails the host. The Resend key is RESEND_API_KEY. */
-export const rsvpGoing = onCall({ ...inviteOptions, secrets: [resendKey] }, async (request) => {
-  try {
-    return await goingRsvp({
-      db: getFirestore(),
-      auth: getAuth(),
-      uid: request.auth?.uid || "",
-      eventId: request.data?.eventId,
-      inviteCode: request.data?.inviteCode,
-      now: Date.now(),
-      timestampOf: (ms) => Timestamp.fromMillis(ms),
-      sendEmail: (payload) => deliverEmail({ ...payload, kind: "rsvp" }),
-      origin: publicOrigin,
-    });
-  } catch (error) {
-    throw toInviteHttpsError(error);
-  }
-});
-
-/** Removes this person's Going RSVP. Signup counts stay, since the account was already created. */
-export const rsvpCancel = onCall(inviteOptions, async (request) => {
-  try {
-    return await undoRsvp({ db: getFirestore(), uid: request.auth?.uid || "", eventId: request.data?.eventId });
-  } catch (error) {
-    throw toInviteHttpsError(error);
-  }
-});
-
-/** Streams a private event photo after the invite code checks out. No code, no bytes. */
-export const inviteCover = onRequest({ ...options, timeoutSeconds: 30, memory: "256MiB", cors: false, invoker: "public" }, async (req, res) => {
-  try {
-    const code = typeof req.query?.code === "string" ? req.query.code : "";
-    const result = await loadInviteCover({
-      db: getFirestore(),
-      bucket: getStorage().bucket(),
-      code,
-      now: Date.now(),
-      ip: req.ip || req.get("x-forwarded-for") || "",
-    });
-    if (!result) {
-      res.set("Cache-Control", "private, no-store");
-      res.status(404).send("");
-      return;
-    }
-    res.set("Cache-Control", "private, max-age=300");
-    res.set("Content-Type", result.contentType);
-    res.status(200).send(result.buffer);
-  } catch (error) {
-    console.error("invite cover failed", error?.name || "error");
-    res.set("Cache-Control", "private, no-store");
-    res.status(404).send("");
   }
 });

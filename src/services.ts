@@ -5,7 +5,6 @@ import { httpsCallable, FunctionsError } from "firebase/functions";
 import { getDownloadURL, ref, uploadBytes } from "firebase/storage";
 import { deadline, isTimeout } from "./deadline";
 import { client } from "./firebase";
-import { readInvite } from "./inviteApi";
 import { readProfile, type Profile } from "./profile";
 import { resizeImage } from "./resizeImage";
 
@@ -136,9 +135,8 @@ export async function requestCode(email: string): Promise<void> {
 
 export async function verifyCode(email: string, code: string): Promise<{ needsProfile: boolean }> {
   const { auth, functions } = await client();
-  const verify = httpsCallable<{ email: string; code: string; inviteCode?: string }, { token: string; needsProfile: boolean }>(functions, "verifyLoginCode");
-  const inviteCode = readInvite();
-  const result = await verify({ email, code, inviteCode: inviteCode || undefined });
+  const verify = httpsCallable<{ email: string; code: string }, { token: string; needsProfile: boolean }>(functions, "verifyLoginCode");
+  const result = await verify({ email, code });
   const token = result.data?.token;
   if (typeof token !== "string" || token.length === 0) throw new Error("Could not finish signing you in.");
   const credential = await signInWithCustomToken(auth, token);

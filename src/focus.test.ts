@@ -3,7 +3,7 @@ import { canonicalFor, focusFromPage, focusReady, type Artist, type ArtistPageDa
 
 const artist: Artist = { id: "ada", name: "Ada Vale", bio: "Night bass", imageURL: "", ownerUid: "ada", slug: "ada-vale" };
 
-function event(patch: Partial<EventItem> & Pick<EventItem, "id" | "slug" | "visibility">): EventItem {
+function event(patch: Partial<EventItem> & Pick<EventItem, "id" | "slug">): EventItem {
   return {
     artistId: "ada",
     title: patch.slug,
@@ -13,7 +13,6 @@ function event(patch: Partial<EventItem> & Pick<EventItem, "id" | "slug" | "visi
     description: "A late set",
     imageURL: "",
     ticketUrl: "",
-    showGuestList: false,
     ...patch,
   };
 }
@@ -22,7 +21,7 @@ const track: Track = { id: "t1", title: "Midnight", duration: 180, order: 0, aud
 
 const page: ArtistPageData = {
   artist,
-  events: [event({ id: "e1", slug: "river-room", visibility: "public", title: "River Room" })],
+  events: [event({ id: "e1", slug: "river-room", title: "River Room" })],
   tracks: [track],
 };
 
@@ -44,13 +43,13 @@ describe("opening an event from the page already loaded", () => {
     expect(focus.openEventId).toBeNull();
   });
 
-  it("keeps a private event off the public share path", () => {
-    const hidden = event({ id: "e2", slug: "secret-set", visibility: "private", title: "Secret Set" });
-    const owned: ArtistPageData = { ...page, events: [...page.events, hidden] };
+  it("uses the event share path for every event", () => {
+    const next = event({ id: "e2", slug: "secret-set", title: "Secret Set" });
+    const owned: ArtistPageData = { ...page, events: [...page.events, next] };
     const focus = focusFromPage({ name: "event", id: "e2" }, owned);
     expect(focusReady(focus)).toBe(true);
     expect(focus.openEventId).toBe("e2");
-    expect(canonicalFor({ name: "event", id: "e2" }, owned)).toBeNull();
+    expect(canonicalFor({ name: "event", id: "e2" }, owned)).toBe("/ada-vale/secret-set");
     expect(canonicalFor({ name: "event", id: "e1" }, page)).toBe("/ada-vale/river-room");
   });
 });

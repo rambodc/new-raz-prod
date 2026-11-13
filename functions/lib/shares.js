@@ -1,5 +1,4 @@
-import { FieldValue } from "firebase-admin/firestore";
-import { eventSubtitle, isPublicEvent, previewRevision } from "./og.js";
+import { eventSubtitle, previewRevision } from "./og.js";
 import { eventSharePath, isSlug, slugCandidates, trackSharePath } from "./slug.js";
 
 const EVENT_BLOCK = ["t", "edit"];
@@ -112,18 +111,9 @@ export async function loadShareModel(db, parsed) {
   return { artist, event, track };
 }
 
-export async function removePrivateOg(bucket, eventId) {
-  if (!bucket || !eventId) return;
-  try {
-    await bucket.file(`og/events/${eventId}.jpg`).delete({ ignoreNotFound: true });
-  } catch (error) {
-    if (error?.code !== 404) throw error;
-  }
-}
-
 /**
  * Keep the slug, the lookup, and the preview image aligned with the document.
- * Private events drop their preview image. Nothing here deletes the event, artist, or track.
+ * Nothing here deletes the event, artist, or track.
  */
 export async function syncArtistRecord(db, bucket, artistId, after, ensureImage) {
   if (!after || !isSlug(after.slug)) return;
@@ -144,17 +134,8 @@ export async function syncArtistRecord(db, bucket, artistId, after, ensureImage)
   if (Object.keys(patch).length > 0) await db.doc(`artists/${artistId}`).update(patch);
 }
 
-export async function syncEventRecord(db, bucket, eventId, after, ensureImage) {
-  if (!after) return;
-  const visibility = after.visibility;
-  if (visibility !== "public" && visibility !== "private") {
-    await removePrivateOg(bucket, eventId);
-    return;
-  }
-  if (!isSlug(after.slug) || after.slug === "t") {
-    if (visibility !== "public") await removePrivateOg(bucket, eventId);
-    return;
-  }
+export async function syncEventRecord(db, eventId, after, ensureImage) {
+  if (!after || !isSlug(after.slug) || after.slug === "t") return;
   const patch = {};
   let slug = after.slug;
   if (after.artistId) {
@@ -164,20 +145,14 @@ export async function syncEventRecord(db, bucket, eventId, after, ensureImage) {
       patch.slug = next;
     } else if (next) slug = next;
   }
-  if (!isPublicEvent({ visibility })) {
-    await removePrivateOg(bucket, eventId);
-    if (after.ogRevision) patch.ogRevision = FieldValue.delete();
-    if (Object.keys(patch).length > 0) await db.doc(`events/${eventId}`).update(patch);
-    return;
-  }
-  const revision = previewRevision("event", { ...after, slug, visibility });
+  const revision = previewRevision("event", { ...after, slug });
   if (after.slug === slug && after.ogRevision === revision && Object.keys(patch).length === 0) return;
   await ensureImage({
     objectPath: `og/events/${eventId}.jpg`,
     revision,
     photoUrl: after.imageURL || "",
     title: after.title || "Event",
-    subtitle: eventSubtitle({ ...after, slug, visibility }),
+    subtitle: eventSubtitle({ ...after, slug }),
   });
   if (after.ogRevision !== revision) patch.ogRevision = revision;
   if (Object.keys(patch).length > 0) await db.doc(`events/${eventId}`).update(patch);

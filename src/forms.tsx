@@ -148,8 +148,6 @@ export function EventForm({
   const [city, setCity] = useState(event?.city ?? "");
   const [description, setDescription] = useState(event?.description ?? "");
   const [ticketUrl, setTicketUrl] = useState(event?.ticketUrl ?? "");
-  const [visibility, setVisibility] = useState(event?.visibility ?? "public");
-  const [showGuestList, setShowGuestList] = useState(event?.showGuestList ?? false);
   const [file, setFile] = useState<File | null>(null);
   const [preview, setPreview] = useState(event?.imageURL ?? "");
   const [error, setError] = useState("");
@@ -200,8 +198,6 @@ export function EventForm({
       description: nextDescription,
       imageURL: event?.imageURL ?? "",
       ticketUrl: nextTicket,
-      visibility,
-      showGuestList,
     };
     try {
       const id = creating ? await publishEvent(uid, input, file as File) : await saveReturning(event.id, input, file);
@@ -249,18 +245,6 @@ export function EventForm({
           disabled={busy}
           onChange={(change) => setTicketUrl(change.target.value)}
         />
-        <div className="visibility" role="radiogroup" aria-label="Who can see this event">
-          <button type="button" role="radio" aria-checked={visibility === "public"} className={visibility === "public" ? "is-on" : ""} disabled={busy} onClick={() => setVisibility("public")}>
-            Public
-          </button>
-          <button type="button" role="radio" aria-checked={visibility === "private"} className={visibility === "private" ? "is-on" : ""} disabled={busy} onClick={() => setVisibility("private")}>
-            Private
-          </button>
-        </div>
-        <p className="visibility-note">{visibility === "public" ? "Anyone can open this event. Invite links remember who brought them." : "Only people with an invite, and guests who are going, can see this event."}</p>
-        <button type="button" className={showGuestList ? "guest-toggle is-on" : "guest-toggle"} aria-pressed={showGuestList} disabled={busy} onClick={() => setShowGuestList((value) => !value)}>
-          {showGuestList ? "Guests can see who's going" : "Guest list is hidden"}
-        </button>
       </div>
       {error ? <p className="form-error" role="alert">{error}</p> : null}
       <button className="primary" type="submit" disabled={busy} aria-busy={busy}>
