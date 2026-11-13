@@ -3,9 +3,6 @@
 
 export const SLUG_RE = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
 
-// Invite codes are not slugs. Short, unguessable, and free of ambiguous characters.
-export const INVITE_CODE_RE = /^[abcdefghjkmnpqrstuvwxyz23456789]{10}$/;
-
 // First path segment of the SPA, plus words we never want an artist to claim.
 export const RESERVED = new Set([
   "about",
@@ -146,12 +143,7 @@ export function parseSharePath(pathname) {
       return part;
     }
   });
-  if (parts.length === 0) return { kind: "spa" };
-  if (parts[0] === "i") {
-    if (parts.length === 2 && INVITE_CODE_RE.test(parts[1])) return { kind: "invite", code: parts[1] };
-    return { kind: "spa" };
-  }
-  if (!isSlug(parts[0]) || RESERVED.has(parts[0])) return { kind: "spa" };
+  if (parts.length === 0 || !isSlug(parts[0]) || RESERVED.has(parts[0])) return { kind: "spa" };
   if (parts.length === 1) return { kind: "artist", artistSlug: parts[0] };
   if (parts.length === 3 && parts[1] === "t" && isSlug(parts[2])) {
     return { kind: "track", artistSlug: parts[0], trackSlug: parts[2] };

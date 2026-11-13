@@ -8,8 +8,6 @@ import type { Route } from "./routes";
 import { ARTIST_EVENT_PHOTO, resizeImage, type ImageCrop } from "./resizeImage";
 import { artistPath, eventPath, isSlug, slugCandidates } from "./slug";
 
-export type Visibility = "public" | "private";
-
 export type Artist = {
   id: string;
   name: string;
@@ -29,8 +27,6 @@ export type EventItem = {
   description: string;
   imageURL: string;
   ticketUrl: string;
-  visibility: Visibility;
-  showGuestList: boolean;
   slug: string;
 };
 
@@ -42,8 +38,6 @@ export type EventInput = {
   description: string;
   imageURL: string;
   ticketUrl: string;
-  visibility: Visibility;
-  showGuestList: boolean;
 };
 
 export type Track = {
@@ -112,7 +106,7 @@ export function canonicalFor(route: Route, page: ArtistPageData): string | null 
   if (route.name === "artist") return artistPath(artist.slug);
   if (route.name === "event" && route.id) {
     const event = page.events.find((item) => item.id === route.id);
-    if (event?.visibility === "public" && event.slug) return eventPath(artist.slug, event.slug);
+    if (event?.slug) return eventPath(artist.slug, event.slug);
   }
   return null;
 }
@@ -146,8 +140,7 @@ export function readEvent(id: string, data: Record<string, unknown>): EventItem 
   const startsAt = starts instanceof Timestamp ? starts.toDate() : null;
   const title = asString(data.title).trim();
   const slug = asString(data.slug);
-  const visibility = data.visibility === "public" || data.visibility === "private" ? data.visibility : null;
-  if (!startsAt || !title || !visibility || !isSlug(slug) || slug === "t") return null;
+  if (!startsAt || !title || !isSlug(slug) || slug === "t") return null;
   return {
     id,
     artistId: asString(data.artistId),
@@ -158,8 +151,6 @@ export function readEvent(id: string, data: Record<string, unknown>): EventItem 
     description: asString(data.description),
     imageURL: asString(data.imageURL),
     ticketUrl: asString(data.ticketUrl).trim(),
-    visibility,
-    showGuestList: data.showGuestList === true,
     slug,
   };
 }
@@ -200,20 +191,10 @@ export async function getEvent(id: string): Promise<EventItem | null> {
   }
 }
 
-export async function listUpcomingEvents(): Promise<EventItem[]> {
+export async function listArtistEvents(artistId: string): Promise<EventItem[]> {
   const { db } = await client();
-  const snap = await getDocs(query(collection(db, "events"), where("visibility", "==", "public"), where("startsAt", ">=", Timestamp.fromDate(new Date())), orderBy("startsAt", "asc"), limit(40)));
+  const snap = await getDocs(query(collection(db, "events"), where("artistId", "==", artistId), orderBy("startsAt", "asc"), limit(ARTIST_EVENT_LIMIT)));
   return eventsFrom(snap.docs);
-}
-
-export async function listArtistEvents(artistId: string, publicOnly: boolean): Promise<EventItem[]> {
-  const { db } = await client();
-  const snap = await getDocs(
-    publicOnly
-      ? query(collection(db, "events"), where("artistId", "==", artistId), where("visibility", "==", "public"), orderBy("startsAt", "asc"), limit(ARTIST_EVENT_LIMIT))
-      : query(collection(db, "events"), where("artistId", "==", artistId), orderBy("startsAt", "asc"), limit(ARTIST_EVENT_LIMIT)),
-  );
-  return eventsFrom(snap.docs).filter((event) => (publicOnly ? event.visibility === "public" : true));
 }
 
 export async function listArtists(): Promise<Artist[]> {
@@ -243,15 +224,14 @@ export async function listTracks(artistId: string): Promise<Track[]> {
     .sort((a, b) => a.order - b.order || a.title.localeCompare(b.title) || a.id.localeCompare(b.id));
 }
 
-export async function loadArtistPage(id: string, options?: { ensureEventId?: string; publicOnly?: boolean }): Promise<ArtistPageData> {
+export async function loadArtistPage(id: string, options?: { ensureEventId?: string }): Promise<ArtistPageData> {
   const artist = await getArtist(id);
   if (!artist) return { artist: null, events: [], tracks: [] };
-  const publicOnly = options?.publicOnly ?? false;
-  const [events, tracks] = await Promise.all([listArtistEvents(id, publicOnly), listTracks(id)]);
+  const [events, tracks] = await Promise.all([listArtistEvents(id), listTracks(id)]);
   const ensureEventId = options?.ensureEventId;
   if (ensureEventId && !events.some((event) => event.id === ensureEventId)) {
     const extra = await getEvent(ensureEventId);
-    if (extra && extra.artistId === id && (!publicOnly || extra.visibility === "public")) {
+    if (extra && extra.artistId === id) {
       events.push(extra);
       events.sort((a, b) => a.startsAt.getTime() - b.startsAt.getTime());
     }
@@ -264,10 +244,9 @@ export type ResolvedPage = {
   openEventId: string | null;
   highlightTrackId: string | null;
   canonicalPath: string | null;
-  hiddenEvent: boolean;
 };
 
-const emptyResolved: ResolvedPage = { page: { artist: null, events: [], tracks: [] }, openEventId: null, highlightTrackId: null, canonicalPath: null, hiddenEvent: false };
+const emptyResolved: ResolvedPage = { page: { artist: null, events: [], tracks: [] }, openEventId: null, highlightTrackId: null, canonicalPath: null };
 
 async function shareTarget(path: string, field: "eventId" | "trackId"): Promise<string | null> {
   const { db } = await client();
@@ -289,18 +268,16 @@ export async function resolveRoutePage(route: Route, uid: string): Promise<Resol
     if (!slugSnap.exists()) return emptyResolved;
     const artistId = asString(slugSnap.data().artistId);
     if (!artistId) return emptyResolved;
-    const publicOnly = uid !== artistId;
-    const page = await loadArtistPage(artistId, { publicOnly });
+    const page = await loadArtistPage(artistId);
     const focus = focusFromPage(route, page);
     let openEventId = focus.openEventId;
     let highlightTrackId = focus.highlightTrackId;
     // Opening uses the events already loaded with the artist. The share lookup is only
-    // for a public event that fell off a full page. A short list means the slug is not public,
-    // so we do not read eventShares (a private lookup is denied and would log in the console).
+    // for an event that fell off a full page.
     if (focus.pendingEvent && route.eventSlug && page.events.length >= ARTIST_EVENT_LIMIT) {
       const looked = await shareTarget(`artists/${artistId}/eventShares/${route.eventSlug}`, "eventId");
       const extra = looked ? (page.events.find((item) => item.id === looked) ?? (await getEvent(looked))) : null;
-      if (extra && extra.artistId === artistId && (!publicOnly || extra.visibility === "public")) {
+      if (extra && extra.artistId === artistId) {
         if (!page.events.some((item) => item.id === extra.id)) {
           page.events.push(extra);
           page.events.sort((a, b) => a.startsAt.getTime() - b.startsAt.getTime());
@@ -312,27 +289,27 @@ export async function resolveRoutePage(route: Route, uid: string): Promise<Resol
       const looked = await shareTarget(`artists/${artistId}/trackShares/${route.trackSlug}`, "trackId");
       if (looked && page.tracks.some((track) => track.id === looked)) highlightTrackId = looked;
     }
-    return { page, openEventId, highlightTrackId, canonicalPath: null, hiddenEvent: false };
+    return { page, openEventId, highlightTrackId, canonicalPath: null };
   }
   if (route.name === "artist" || route.name === "artist-edit") {
-    const page = await loadArtistPage(route.id, { publicOnly: uid !== route.id });
-    return { page, openEventId: null, highlightTrackId: null, canonicalPath: canonicalFor(route, page), hiddenEvent: false };
+    const page = await loadArtistPage(route.id);
+    return { page, openEventId: null, highlightTrackId: null, canonicalPath: canonicalFor(route, page) };
   }
   if (route.name === "event" || (route.name === "event-edit" && route.id)) {
     const eventId = route.id;
     if (!eventId) return emptyResolved;
     const event = await getEvent(eventId);
-    if (!event) return { ...emptyResolved, hiddenEvent: true };
-    const page = await loadArtistPage(event.artistId, { ensureEventId: eventId, publicOnly: uid !== event.artistId });
+    if (!event) return emptyResolved;
+    const page = await loadArtistPage(event.artistId, { ensureEventId: eventId });
     if (!page.events.some((item) => item.id === event.id)) {
       page.events.push(event);
       page.events.sort((a, b) => a.startsAt.getTime() - b.startsAt.getTime());
     }
-    return { page, openEventId: event.id, highlightTrackId: null, canonicalPath: canonicalFor(route, page), hiddenEvent: false };
+    return { page, openEventId: event.id, highlightTrackId: null, canonicalPath: canonicalFor(route, page) };
   }
   if (route.name === "event-edit" && route.id === null && uid) {
-    const page = await loadArtistPage(uid, { publicOnly: false });
-    return { page, openEventId: null, highlightTrackId: null, canonicalPath: null, hiddenEvent: false };
+    const page = await loadArtistPage(uid);
+    return { page, openEventId: null, highlightTrackId: null, canonicalPath: null };
   }
   return emptyResolved;
 }
@@ -340,7 +317,7 @@ export async function resolveRoutePage(route: Route, uid: string): Promise<Resol
 export async function loadLinkedArtist(eventId: string): Promise<ArtistPageData> {
   const event = await getEvent(eventId);
   if (!event) return { artist: null, events: [], tracks: [] };
-  return loadArtistPage(event.artistId, { ensureEventId: eventId, publicOnly: false });
+  return loadArtistPage(event.artistId, { ensureEventId: eventId });
 }
 
 async function pickSlug(artistId: string, kind: "event" | "track", name: string): Promise<string> {
@@ -397,8 +374,6 @@ export async function publishEvent(uid: string, input: EventInput, file: File): 
     description: input.description,
     imageURL: storageObjectUrl(path),
     ticketUrl: input.ticketUrl,
-    visibility: input.visibility,
-    showGuestList: input.showGuestList,
     slug,
     createdAt: serverTimestamp(),
     updatedAt: serverTimestamp(),
@@ -429,8 +404,6 @@ export async function saveEvent(id: string, input: EventInput, file: File | null
     description: input.description,
     imageURL,
     ticketUrl: input.ticketUrl,
-    visibility: input.visibility,
-    showGuestList: input.showGuestList,
     updatedAt: serverTimestamp(),
   });
 }

@@ -224,8 +224,6 @@ function eventDoc(id, extra = {}) {
     description: "An intimate late-night set.",
     imageURL: eventImage(id),
     ticketUrl: "",
-    visibility: "public",
-    showGuestList: false,
     slug: "night",
     createdAt: serverTimestamp(),
     updatedAt: serverTimestamp(),
@@ -277,7 +275,7 @@ test("artist pages and events are public to read, and only the owning artist can
 
   await assertSucceeds(setDoc(doc(nova, "events/night1"), eventDoc("night1")));
   await assertSucceeds(getDoc(doc(anon, "events/night1")));
-  await assertSucceeds(getDocs(query(collection(anon, "events"), where("artistId", "==", "nova"), where("visibility", "==", "public"), orderBy("startsAt", "asc"))));
+  await assertSucceeds(getDocs(query(collection(anon, "events"), where("artistId", "==", "nova"), orderBy("startsAt", "asc"))));
   await assertSucceeds(updateDoc(doc(nova, "events/night1"), { title: "Late Night Set", updatedAt: serverTimestamp() }));
   await assertFails(updateDoc(doc(nova, "events/night1"), { artistId: "ada", updatedAt: serverTimestamp() }));
   await assertFails(updateDoc(doc(nova, "events/night1"), { title: "Nope", imageURL: `https://firebasestorage.googleapis.com/v0/b/b/o/events%2Fother%2Fcover.jpg?x=events%2Fnight1%2F`, updatedAt: serverTimestamp() }));
@@ -393,8 +391,8 @@ test("artist and event images are public to read, and only the owning artist can
   await seed();
   await testEnv.withSecurityRulesDisabled(async (context) => {
     const db = context.firestore();
-    await setDoc(doc(db, "events/e1"), { artistId: "nova", visibility: "public" });
-    await setDoc(doc(db, "events/e2"), { artistId: "bob", visibility: "public" });
+    await setDoc(doc(db, "events/e1"), { artistId: "nova" });
+    await setDoc(doc(db, "events/e2"), { artistId: "bob" });
     await setDoc(doc(db, "events/bare"), { artistId: "nova" });
   });
   const jpeg = new Uint8Array([0xff, 0xd8, 0xff, 0xd9]);
@@ -422,7 +420,7 @@ test("artist and event images are public to read, and only the owning artist can
   await testEnv.withSecurityRulesDisabled(async (context) => {
     await uploadBytes(ref(context.storage(), "events/bare/cover.jpg"), jpeg, { contentType: "image/jpeg" });
   });
-  await assertFails(getBytes(ref(anon, "events/bare/cover.jpg")));
+  await assertSucceeds(getBytes(ref(anon, "events/bare/cover.jpg")));
   await assertSucceeds(getBytes(ref(nova, "events/bare/cover.jpg")));
   await assertFails(uploadBytes(ref(nova, "events/e2/cover.jpg"), jpeg, { contentType: "image/jpeg" }));
   await assertFails(uploadBytes(ref(ada, "events/e1/cover.jpg"), jpeg, { contentType: "image/jpeg" }));
@@ -492,106 +490,76 @@ test("a user can read and replace only their own avatar, as a small jpeg png or 
   await assertFails(deleteObject(ref(mallory, "users/ada/avatar")));
 });
 
-test("public events are readable signed out, private events are only readable by the owner", async () => {
+test("every event is readable, including venue and city, and removed fields are rejected", async () => {
   await seedArtist("nova");
   await seedArtist("ada", "fan");
   const nova = authed("nova", "nova@example.com");
   const ada = authed("ada");
   const anon = testEnv.unauthenticatedContext().firestore();
-  await assertSucceeds(setDoc(doc(nova, "events/pub1"), eventDoc("pub1", { slug: "river-room", visibility: "public" })));
-  await assertSucceeds(setDoc(doc(nova, "events/sec1"), eventDoc("sec1", { slug: "secret-set", visibility: "private", title: "Secret Set" })));
-  await assertSucceeds(getDoc(doc(anon, "events/pub1")));
-  await assertSucceeds(getDoc(doc(ada, "events/pub1")));
-  await assertFails(getDoc(doc(anon, "events/sec1")));
-  await assertFails(getDoc(doc(ada, "events/sec1")));
-  await assertSucceeds(getDoc(doc(nova, "events/sec1")));
-  await assertSucceeds(getDocs(query(collection(anon, "events"), where("artistId", "==", "nova"), where("visibility", "==", "public"), orderBy("startsAt", "asc"))));
-  await assertFails(getDocs(query(collection(anon, "events"), where("artistId", "==", "nova"), orderBy("startsAt", "asc"))));
-  const ownerList = await getDocs(query(collection(nova, "events"), where("artistId", "==", "nova"), orderBy("startsAt", "asc")));
-  assert.deepEqual(ownerList.docs.map((item) => item.id).sort(), ["pub1", "sec1"]);
-  await assertSucceeds(updateDoc(doc(nova, "events/sec1"), { visibility: "public", updatedAt: serverTimestamp() }));
-  await assertSucceeds(getDoc(doc(anon, "events/sec1")));
-  await assertSucceeds(updateDoc(doc(nova, "events/sec1"), { visibility: "private", updatedAt: serverTimestamp() }));
-  await assertFails(getDoc(doc(anon, "events/sec1")));
-  await assertFails(updateDoc(doc(ada, "events/sec1"), { visibility: "public", updatedAt: serverTimestamp() }));
+  await assertSucceeds(setDoc(doc(nova, "events/pub1"), eventDoc("pub1", { slug: "river-room" })));
+  await assertSucceeds(setDoc(doc(nova, "events/sec1"), eventDoc("sec1", { slug: "secret-set", title: "Secret Set", venue: "Loft", city: "Calgary" })));
+  const opened = await getDoc(doc(anon, "events/sec1"));
+  assert.equal(opened.data().title, "Secret Set");
+  assert.equal(opened.data().venue, "Loft");
+  assert.equal(opened.data().city, "Calgary");
+  await assertSucceeds(getDoc(doc(ada, "events/sec1")));
+  const listed = await getDocs(query(collection(anon, "events"), where("artistId", "==", "nova"), orderBy("startsAt", "asc")));
+  assert.deepEqual(listed.docs.map((item) => item.id).sort(), ["pub1", "sec1"]);
+  await assertFails(updateDoc(doc(ada, "events/sec1"), { title: "Hacked", updatedAt: serverTimestamp() }));
   await assertFails(updateDoc(doc(nova, "events/pub1"), { slug: "stolen", updatedAt: serverTimestamp() }));
-  const noVisibility = eventDoc("bare1");
-  delete noVisibility.visibility;
-  await assertFails(setDoc(doc(nova, "events/bare1"), noVisibility));
+  await assertFails(setDoc(doc(nova, "events/marked"), eventDoc("marked", { visibility: "private" })));
+  await assertFails(setDoc(doc(nova, "events/marked"), eventDoc("marked", { visibility: "public" })));
+  await assertFails(setDoc(doc(nova, "events/marked"), eventDoc("marked", { showGuestList: false })));
+  await assertFails(updateDoc(doc(nova, "events/pub1"), { visibility: "private", updatedAt: serverTimestamp() }));
+  await assertFails(updateDoc(doc(nova, "events/pub1"), { showGuestList: true, updatedAt: serverTimestamp() }));
   const noSlug = eventDoc("bare2");
   delete noSlug.slug;
   await assertFails(setDoc(doc(nova, "events/bare2"), noSlug));
   await testEnv.withSecurityRulesDisabled(async (context) => {
-    await setDoc(doc(context.firestore(), "events/old1"), { artistId: "nova", title: "Old night" });
+    await setDoc(doc(context.firestore(), "events/old1"), { artistId: "nova", title: "Old night", venue: "Hall" });
   });
-  await assertFails(getDoc(doc(anon, "events/old1")));
-  await assertSucceeds(getDoc(doc(nova, "events/old1")));
-  await assertFails(getDoc(doc(anon, "events/pub1/invites/ada")));
-  await assertFails(setDoc(doc(nova, "events/pub1/invites/ada"), { uid: "ada" }));
-  await assertFails(setDoc(doc(nova, "events/pub1"), eventDoc("pub1", { showGuestList: "yes" })));
-  await assertFails(getDoc(doc(anon, "invites/abcdefghjk")));
-  await assertFails(setDoc(doc(nova, "invites/abcdefghjk"), { code: "abcdefghjk", eventId: "sec1", active: true }));
-  await assertFails(getDoc(doc(anon, "inviteOpens/abcdefghjk_device")));
+  const old = await getDoc(doc(anon, "events/old1"));
+  assert.equal(old.data().venue, "Hall");
 });
 
-test("a private event stays hidden unless the person is the host, has access, or is going", async () => {
+test("invites, access, rsvps and stats are closed to every client", async () => {
   await seedArtist("nova");
   await seedArtist("ada", "fan");
   const nova = authed("nova", "nova@example.com");
   const ada = authed("ada");
   const anon = testEnv.unauthenticatedContext().firestore();
-  await assertSucceeds(setDoc(doc(nova, "events/sec1"), eventDoc("sec1", { slug: "secret-set", visibility: "private", title: "Secret Set", venue: "Loft", city: "Calgary" })));
-  await assertFails(getDoc(doc(anon, "events/sec1")));
-  await assertFails(getDoc(doc(ada, "events/sec1")));
-  await assertFails(getDocs(query(collection(ada, "events"), where("artistId", "==", "nova"), orderBy("startsAt", "asc"))));
-
+  await assertSucceeds(setDoc(doc(nova, "events/sec1"), eventDoc("sec1", { slug: "secret-set" })));
   await testEnv.withSecurityRulesDisabled(async (context) => {
     const db = context.firestore();
-    await setDoc(doc(db, "events/sec1/access/ada"), { inviteCode: "abcdefghjk", createdAt: at(0) });
-    await setDoc(doc(db, "events/sec1/rsvps/bea"), { status: "going", name: "Bea", photoURL: "", invitedBy: "nova", inviteCode: "abcdefghjk", inviterName: "Nova", newSignup: true, createdAt: "2026-11-12T00:00:00.000Z" });
-    await setDoc(doc(db, "events/sec1/stats/public"), { goingCount: 1 });
-    await setDoc(doc(db, "events/sec1/stats/host"), { opens: 4, goingCount: 1, signupCount: 1 });
-    await setDoc(doc(db, "invites/abcdefghjk"), { code: "abcdefghjk", eventId: "sec1", artistId: "nova", createdBy: "nova", active: true, opens: 4 });
+    await setDoc(doc(db, "events/sec1/access/ada"), { inviteCode: "abcdefghjk" });
+    await setDoc(doc(db, "events/sec1/rsvps/bea"), { status: "going" });
+    await setDoc(doc(db, "events/sec1/stats/host"), { goingCount: 1 });
+    await setDoc(doc(db, "events/sec1/invites/ada"), { uid: "ada" });
+    await setDoc(doc(db, "invites/abcdefghjk"), { code: "abcdefghjk", eventId: "sec1", active: true });
+    await setDoc(doc(db, "inviteOpens/abcdefghjk_device"), { code: "abcdefghjk" });
   });
-
-  await assertSucceeds(getDoc(doc(ada, "events/sec1")));
-  const opened = await getDoc(doc(ada, "events/sec1"));
-  assert.equal(opened.data().title, "Secret Set");
-  assert.equal(opened.data().venue, "Loft");
-  await assertFails(getDoc(doc(anon, "events/sec1")));
-  await assertFails(getDocs(query(collection(ada, "events"), where("visibility", "==", "private"))));
-  await assertSucceeds(getDoc(doc(ada, "events/sec1/access/ada")));
-  await assertFails(getDocs(collection(ada, "events/sec1/access")));
-  await assertFails(setDoc(doc(ada, "events/sec1/access/ada"), { inviteCode: "zzzzzzzzzz" }));
-  await assertFails(setDoc(doc(ada, "events/sec1/access/mallory"), { inviteCode: "abcdefghjk" }));
-  await assertSucceeds(getDoc(doc(ada, "events/sec1/stats/public")));
-  await assertFails(getDoc(doc(ada, "events/sec1/stats/host")));
-  await assertFails(getDoc(doc(anon, "events/sec1/stats/host")));
-  await assertSucceeds(getDoc(doc(nova, "events/sec1/stats/host")));
-  await assertFails(setDoc(doc(nova, "events/sec1/stats/public"), { goingCount: 99 }));
-  await assertFails(getDoc(doc(ada, "events/sec1/rsvps/bea")));
-  await assertFails(getDocs(collection(ada, "events/sec1/rsvps")));
-  await assertSucceeds(getDoc(doc(nova, "events/sec1/rsvps/bea")));
-  await assertSucceeds(getDocs(collection(nova, "events/sec1/rsvps")));
-  await assertFails(setDoc(doc(ada, "events/sec1/rsvps/ada"), { status: "going", name: "Ada" }));
-  await assertFails(updateDoc(doc(ada, "events/sec1/rsvps/bea"), { name: "Hacked" }));
-  await assertFails(getDoc(doc(ada, "invites/abcdefghjk")));
-  await assertFails(getDoc(doc(nova, "invites/abcdefghjk")));
-
-  const bea = authed("bea", "bea@example.com");
-  await assertSucceeds(getDoc(doc(bea, "events/sec1")));
-  await assertSucceeds(getDoc(doc(bea, "events/sec1/rsvps/bea")));
-  await assertFails(getDocs(collection(bea, "events/sec1/rsvps")));
-  await assertFails(getDoc(doc(bea, "events/sec1/stats/host")));
-
-  await assertSucceeds(updateDoc(doc(nova, "events/sec1"), { visibility: "public", updatedAt: serverTimestamp() }));
-  await assertSucceeds(getDoc(doc(bea, "events/sec1/rsvps/bea")));
-  await assertSucceeds(updateDoc(doc(nova, "events/sec1"), { visibility: "private", showGuestList: true, updatedAt: serverTimestamp() }));
-  await assertSucceeds(getDoc(doc(bea, "events/sec1/rsvps/bea")));
-  await assertFails(getDoc(doc(anon, "events/sec1")));
+  for (const db of [anon, ada, nova]) {
+    await assertFails(getDoc(doc(db, "events/sec1/access/ada")));
+    await assertFails(getDocs(collection(db, "events/sec1/access")));
+    await assertFails(getDoc(doc(db, "events/sec1/rsvps/bea")));
+    await assertFails(getDocs(collection(db, "events/sec1/rsvps")));
+    await assertFails(getDoc(doc(db, "events/sec1/stats/host")));
+    await assertFails(getDoc(doc(db, "events/sec1/invites/ada")));
+    await assertFails(getDoc(doc(db, "invites/abcdefghjk")));
+    await assertFails(getDoc(doc(db, "inviteOpens/abcdefghjk_device")));
+  }
+  await assertFails(setDoc(doc(nova, "events/sec1/access/ada"), { inviteCode: "abcdefghjk" }));
+  await assertFails(setDoc(doc(ada, "events/sec1/rsvps/ada"), { status: "going" }));
+  await assertFails(setDoc(doc(nova, "events/sec1/stats/host"), { goingCount: 9 }));
+  await assertFails(setDoc(doc(nova, "events/sec1/invites/ada"), { uid: "ada" }));
+  await assertFails(setDoc(doc(nova, "invites/abcdefghjk"), { code: "abcdefghjk", active: true }));
+  await assertFails(setDoc(doc(nova, "inviteOpens/abcdefghjk_device"), { code: "abcdefghjk" }));
 });
 
-test("a client cannot write invite attribution onto their own profile", async () => {
+test("profiles reject invitedBy, inviteCode and signupCounted", async () => {
+  await assertFails(setDoc(doc(authed("bea", "bea@example.com"), "users/bea"), profile({ email: "bea@example.com", invitedBy: "nova" })));
+  await assertFails(setDoc(doc(authed("bea", "bea@example.com"), "users/bea"), profile({ email: "bea@example.com", inviteCode: "abcdefghjk" })));
+  await assertFails(setDoc(doc(authed("bea", "bea@example.com"), "users/bea"), profile({ email: "bea@example.com", signupCounted: true })));
   await seed("ada", {
     firstName: "Ada",
     lastName: "Lovelace",
@@ -604,15 +572,10 @@ test("a client cannot write invite attribution onto their own profile", async ()
     createdAt: Timestamp.fromMillis(1_700_000_000_000),
     updatedAt: Timestamp.fromMillis(1_700_000_000_000),
   });
-  const db = authed("ada");
-  await assertSucceeds(updateDoc(doc(db, "users/ada"), { firstName: "Augusta", updatedAt: serverTimestamp() }));
-  await assertFails(updateDoc(doc(db, "users/ada"), { invitedBy: "mallory", updatedAt: serverTimestamp() }));
-  await assertFails(updateDoc(doc(db, "users/ada"), { inviteCode: "zzzzzzzzzz", updatedAt: serverTimestamp() }));
-  await assertFails(updateDoc(doc(db, "users/ada"), { signupCounted: false, updatedAt: serverTimestamp() }));
-  await assertFails(setDoc(doc(authed("bea", "bea@example.com"), "users/bea"), profile({ email: "bea@example.com", invitedBy: "nova", inviteCode: "abcdefghjk" })));
+  await assertFails(updateDoc(doc(authed("ada"), "users/ada"), { firstName: "Augusta", updatedAt: serverTimestamp() }));
 });
 
-test("share lookups cannot be hijacked and private event links stay hidden", async () => {
+test("share lookups cannot be hijacked and every event link is readable", async () => {
   await seedArtist("nova");
   await seedArtist("bob");
   const nova = authed("nova", "nova@example.com");
@@ -630,13 +593,12 @@ test("share lookups cannot be hijacked and private event links stay hidden", asy
   await assertSucceeds(updateDoc(doc(nova, "artists/nova"), { bio: "Still mine.", updatedAt: serverTimestamp() }));
   await assertFails(updateDoc(doc(nova, "artists/nova"), { slug: "bob-vale", updatedAt: serverTimestamp() }));
 
-  await assertSucceeds(setDoc(doc(nova, "events/ev1"), eventDoc("ev1", { slug: "river-room", visibility: "public" })));
-  await assertSucceeds(setDoc(doc(nova, "events/ev2"), eventDoc("ev2", { slug: "secret-set", visibility: "private" })));
+  await assertSucceeds(setDoc(doc(nova, "events/ev1"), eventDoc("ev1", { slug: "river-room" })));
+  await assertSucceeds(setDoc(doc(nova, "events/ev2"), eventDoc("ev2", { slug: "secret-set" })));
   await assertSucceeds(setDoc(doc(nova, "artists/nova/eventShares/river-room"), { eventId: "ev1" }));
   await assertSucceeds(setDoc(doc(nova, "artists/nova/eventShares/secret-set"), { eventId: "ev2" }));
   await assertSucceeds(getDoc(doc(anon, "artists/nova/eventShares/river-room")));
-  await assertFails(getDoc(doc(anon, "artists/nova/eventShares/secret-set")));
-  await assertSucceeds(getDoc(doc(nova, "artists/nova/eventShares/secret-set")));
+  await assertSucceeds(getDoc(doc(anon, "artists/nova/eventShares/secret-set")));
   await assertFails(setDoc(doc(bob, "artists/nova/eventShares/river-room-2"), { eventId: "ev1" }));
   await assertFails(setDoc(doc(nova, "artists/nova/eventShares/other"), { eventId: "ev1" }));
   await assertFails(setDoc(doc(nova, "artists/nova/eventShares/t"), { eventId: "ev1" }));
@@ -650,14 +612,14 @@ test("share lookups cannot be hijacked and private event links stay hidden", asy
   await assertFails(updateDoc(doc(nova, "artists/nova/tracks/song1"), { slug: "dawn", updatedAt: serverTimestamp() }));
 });
 
-test("preview images are public to read and private event photos are not", async () => {
+test("preview images and event photos are public to read and clients cannot write previews", async () => {
   await seedArtist("nova");
   await seed();
   const jpeg = new Uint8Array([0xff, 0xd8, 0xff, 0xd9]);
   await testEnv.withSecurityRulesDisabled(async (context) => {
     const db = context.firestore();
-    await setDoc(doc(db, "events/open1"), { artistId: "nova", visibility: "public" });
-    await setDoc(doc(db, "events/shut1"), { artistId: "nova", visibility: "private" });
+    await setDoc(doc(db, "events/open1"), { artistId: "nova" });
+    await setDoc(doc(db, "events/shut1"), { artistId: "nova" });
     await uploadBytes(ref(context.storage(), "og/artists/nova.jpg"), jpeg, { contentType: "image/jpeg" });
     await uploadBytes(ref(context.storage(), "events/open1/cover.jpg"), jpeg, { contentType: "image/jpeg" });
     await uploadBytes(ref(context.storage(), "events/shut1/cover.jpg"), jpeg, { contentType: "image/jpeg" });
@@ -669,20 +631,8 @@ test("preview images are public to read and private event photos are not", async
   await assertFails(uploadBytes(ref(nova, "og/artists/nova.jpg"), jpeg, { contentType: "image/jpeg" }));
   await assertFails(uploadBytes(ref(ada, "og/events/open1.jpg"), jpeg, { contentType: "image/jpeg" }));
   await assertSucceeds(getBytes(ref(anon, "events/open1/cover.jpg")));
-  await assertFails(getBytes(ref(anon, "events/shut1/cover.jpg")));
-  await assertFails(getBytes(ref(ada, "events/shut1/cover.jpg")));
-  await assertSucceeds(getBytes(ref(nova, "events/shut1/cover.jpg")));
-  await testEnv.withSecurityRulesDisabled(async (context) => {
-    await setDoc(doc(context.firestore(), "events/shut1/access/ada"), { inviteCode: "abcdefghjk" });
-  });
+  await assertSucceeds(getBytes(ref(anon, "events/shut1/cover.jpg")));
   await assertSucceeds(getBytes(ref(ada, "events/shut1/cover.jpg")));
-  await assertFails(getBytes(ref(anon, "events/shut1/cover.jpg")));
-  const bea = testEnv.authenticatedContext("bea", { email: "bea@example.com" }).storage();
-  await assertFails(getBytes(ref(bea, "events/shut1/cover.jpg")));
-  await testEnv.withSecurityRulesDisabled(async (context) => {
-    await setDoc(doc(context.firestore(), "events/shut1/rsvps/bea"), { status: "going" });
-  });
-  await assertSucceeds(getBytes(ref(bea, "events/shut1/cover.jpg")));
 });
 
 // The live create-event payload. Wednesday, Nov 25, 2026, 10:00 PM in America/Edmonton.
@@ -692,7 +642,7 @@ const LIVE_DESCRIPTION = `${LIVE_LINE}\nThe photo is cropped to the frame.`;
 const LIVE_TICKET = "https://wallpaper.cave/w/wp4472461";
 const objectUrl = (id) => `https://firebasestorage.googleapis.com/v0/b/new-raz-prod.firebasestorage.app/o/events%2F${id}%2Fcover.jpg?alt=media`;
 
-function liveEvent(id, slug, visibility) {
+function liveEvent(id, slug) {
   return eventDoc(id, {
     title: "Shahr",
     startsAt: LIVE_START,
@@ -701,13 +651,11 @@ function liveEvent(id, slug, visibility) {
     description: LIVE_DESCRIPTION,
     imageURL: objectUrl(id),
     ticketUrl: LIVE_TICKET,
-    visibility,
-    showGuestList: true,
     slug,
   });
 }
 
-test("an artist can publish a public event and a private event, upload the cover, and still edit", async () => {
+test("an artist can publish an event, upload the cover, and still edit", async () => {
   await seedArtist("nova");
   await seedArtist("ada", "fan");
   await seedArtist("bob");
@@ -717,19 +665,17 @@ test("an artist can publish a public event and a private event, upload the cover
   const anon = testEnv.unauthenticatedContext().firestore();
   const anonStorage = testEnv.unauthenticatedContext().storage();
   const ada = authed("ada");
-  const adaStorage = testEnv.authenticatedContext("ada", { email: "ada@example.com" }).storage();
   const jpeg = new Uint8Array([0xff, 0xd8, 0xff, 0xd9]);
 
-  async function publish(id, slug, visibility) {
+  async function publish(id, slug) {
     const batch = writeBatch(db);
-    batch.set(doc(db, `events/${id}`), liveEvent(id, slug, visibility));
+    batch.set(doc(db, `events/${id}`), liveEvent(id, slug));
     batch.set(doc(db, `artists/nova/eventShares/${slug}`), { eventId: id });
     await assertSucceeds(batch.commit());
     const created = await getDoc(doc(db, `events/${id}`));
     assert.equal(created.data().description, LIVE_DESCRIPTION);
     assert.equal(created.data().ticketUrl, LIVE_TICKET);
-    assert.equal(created.data().showGuestList, true);
-    assert.equal(created.data().visibility, visibility);
+    assert.equal(created.data().venue, "Vennuue");
     assert.equal(created.data().imageURL, objectUrl(id));
     assert.equal(created.data().artistId, "nova");
 
@@ -745,49 +691,34 @@ test("an artist can publish a public event and a private event, upload the cover
       city: "Calgary",
       description: "Edited line.\nStill two lines.",
       ticketUrl: "https://tickets.example.com/shahr",
-      showGuestList: false,
       updatedAt: serverTimestamp(),
     }));
     const edited = await getDoc(doc(db, `events/${id}`));
     assert.equal(edited.data().title, "Shahr Late");
     assert.equal(edited.data().description, "Edited line.\nStill two lines.");
     assert.equal(edited.data().ticketUrl, "https://tickets.example.com/shahr");
-    assert.equal(edited.data().showGuestList, false);
+    assert.equal(edited.data().venue, "Vennuue");
     assert.equal(edited.data().slug, slug);
     assert.equal(edited.data().imageURL, imageURL);
-    assert.equal(edited.data().visibility, visibility);
+    assert.equal(edited.data().visibility, undefined);
+    assert.equal(edited.data().showGuestList, undefined);
   }
 
-  await publish("pubLive1", "shahr", "public");
+  await publish("pubLive1", "shahr");
   await assertSucceeds(getDoc(doc(anon, "events/pubLive1")));
   await assertSucceeds(getDoc(doc(anon, "artists/nova/eventShares/shahr")));
   await assertSucceeds(getBytes(ref(anonStorage, "events/pubLive1/cover.jpg")));
   await assertFails(updateDoc(doc(ada, "events/pubLive1"), { title: "Hacked", updatedAt: serverTimestamp() }));
-
-  await publish("prvLive1", "vennuue", "private");
-  await assertFails(getDoc(doc(anon, "events/prvLive1")));
-  await assertFails(getDoc(doc(ada, "events/prvLive1")));
-  await assertSucceeds(getDoc(doc(db, "events/prvLive1")));
-  await assertFails(getDoc(doc(anon, "artists/nova/eventShares/vennuue")));
-  await assertSucceeds(getDoc(doc(db, "artists/nova/eventShares/vennuue")));
-  await assertFails(getBytes(ref(anonStorage, "events/prvLive1/cover.jpg")));
-  await assertFails(getBytes(ref(adaStorage, "events/prvLive1/cover.jpg")));
-  await assertSucceeds(getBytes(ref(storage, "events/prvLive1/cover.jpg")));
-
-  await assertSucceeds(updateDoc(doc(db, "events/prvLive1"), { visibility: "public", updatedAt: serverTimestamp() }));
-  await assertSucceeds(getDoc(doc(anon, "events/prvLive1")));
-  await assertSucceeds(getDoc(doc(anon, "artists/nova/eventShares/vennuue")));
-  await assertSucceeds(updateDoc(doc(db, "events/prvLive1"), { visibility: "private", showGuestList: true, updatedAt: serverTimestamp() }));
-  await assertFails(getDoc(doc(anon, "events/prvLive1")));
-  await assertFails(getDoc(doc(anon, "artists/nova/eventShares/vennuue")));
+  await assertFails(updateDoc(doc(db, "events/pubLive1"), { visibility: "private", updatedAt: serverTimestamp() }));
+  await assertFails(updateDoc(doc(db, "events/pubLive1"), { showGuestList: true, updatedAt: serverTimestamp() }));
 
   const fanBatch = writeBatch(ada);
-  fanBatch.set(doc(ada, "events/fanLive1"), liveEvent("fanLive1", "nope", "public"));
+  fanBatch.set(doc(ada, "events/fanLive1"), liveEvent("fanLive1", "nope"));
   fanBatch.set(doc(ada, "artists/ada/eventShares/nope"), { eventId: "fanLive1" });
   await assertFails(fanBatch.commit());
 
   const mismatch = writeBatch(db);
-  mismatch.set(doc(db, "events/mis1"), liveEvent("mis1", "real-slug", "public"));
+  mismatch.set(doc(db, "events/mis1"), liveEvent("mis1", "real-slug"));
   mismatch.set(doc(db, "artists/nova/eventShares/other-slug"), { eventId: "mis1" });
   await assertFails(mismatch.commit());
   await assertFails(setDoc(doc(db, "artists/nova/eventShares/ghost"), { eventId: "doesnotexist1" }));
@@ -796,7 +727,7 @@ test("an artist can publish a public event and a private event, upload the cover
   await assertFails(updateDoc(doc(db, "events/pubLive1"), { imageURL: objectUrl("otherEvent"), updatedAt: serverTimestamp() }));
 
   const withStats = writeBatch(db);
-  withStats.set(doc(db, "events/stat1"), liveEvent("stat1", "stat-night", "private"));
+  withStats.set(doc(db, "events/stat1"), liveEvent("stat1", "stat-night"));
   withStats.set(doc(db, "artists/nova/eventShares/stat-night"), { eventId: "stat1" });
   withStats.set(doc(db, "events/stat1/stats/host"), { opens: 1, goingCount: 0, signupCount: 0 });
   await assertFails(withStats.commit());
@@ -813,7 +744,7 @@ test("an artist can publish a public event and a private event, upload the cover
     assert.equal((await getDoc(doc(admin, "events/stat1"))).exists(), false);
     assert.equal((await getDoc(doc(admin, "events/pubLive1"))).data().slug, "shahr");
     assert.equal((await getDoc(doc(admin, "artists/nova/eventShares/hijack"))).exists(), false);
-    assert.equal((await getDoc(doc(admin, "events/prvLive1"))).data().visibility, "private");
+    assert.equal((await getDoc(doc(admin, "events/pubLive1"))).data().visibility, undefined);
   });
 });
 

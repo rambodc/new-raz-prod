@@ -1,8 +1,42 @@
 import type { Artist, EventItem } from "./data";
-import { EventSocial } from "./invite";
-import { formatWhen } from "./format";
+import { cleanTicketUrl, formatWhen, validTicketUrl } from "./format";
+import { ShareButton } from "./share";
 import { artistPath, eventPath } from "./slug";
 import { BrandLockup, EventPhoto, SignInButton } from "./ui";
+
+export function EventActions({
+  ticketUrl,
+  sharePath,
+  shareTitle,
+  onEdit,
+}: {
+  ticketUrl: string;
+  sharePath: string;
+  shareTitle: string;
+  onEdit?: () => void;
+}) {
+  const tickets = cleanTicketUrl(ticketUrl);
+  const showTickets = tickets.length > 0 && validTicketUrl(tickets);
+  return (
+    <div className="social">
+      <div className="event-actions">
+        {showTickets ? (
+          <a className="primary" href={tickets} target="_blank" rel="noopener noreferrer">
+            Get tickets
+          </a>
+        ) : null}
+        <div className="event-tools">
+          {sharePath ? <ShareButton title={shareTitle} text={shareTitle} path={sharePath} label={`Share ${shareTitle}`} /> : null}
+          {onEdit ? (
+            <button type="button" className="text-action" onClick={onEdit}>
+              Edit
+            </button>
+          ) : null}
+        </div>
+      </div>
+    </div>
+  );
+}
 
 export function EventPage({
   event,
@@ -22,7 +56,7 @@ export function EventPage({
   go: (path: string) => void;
 }) {
   const owner = uid !== "" && uid === event.artistId;
-  const sharePath = event.visibility === "public" ? eventPath(artist.slug, event.slug) : "";
+  const sharePath = event.slug ? eventPath(artist.slug, event.slug) : "";
   return (
     <div className="stage">
       <div className="stage-scroll">
@@ -32,13 +66,13 @@ export function EventPage({
             {onSignIn ? <SignInButton onClick={onSignIn} /> : null}
           </div>
         </header>
-        <main className="stage-column invite-column">
+        <main className="stage-column event-column">
           <article className="night is-open event-solo">
             <div className="night-photo-wrap">
               <EventPhoto url={event.imageURL} alt="" priority />
             </div>
             <div className="night-detail">
-              <h1 className="invite-title">{event.title}</h1>
+              <h1 className="event-title">{event.title}</h1>
               <p className="night-detail-when">{formatWhen(event.startsAt, "detail")}</p>
               <p className="night-detail-place">
                 {event.venue}
@@ -48,12 +82,10 @@ export function EventPage({
                 {artist.name}
               </button>
               {event.description ? <p className="stage-prose">{event.description}</p> : null}
-              <EventSocial
-                event={event}
-                owner={owner}
-                uid={uid}
-                onSignIn={onSignIn}
+              <EventActions
+                ticketUrl={event.ticketUrl}
                 sharePath={sharePath}
+                shareTitle={event.title}
                 onEdit={owner ? () => go(`/event/${event.id}/edit`) : undefined}
               />
             </div>

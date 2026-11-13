@@ -2,7 +2,6 @@ import type { MouseEvent, ReactNode } from "react";
 import { loadHome, type Artist } from "./data";
 import type { Profile } from "./profile";
 import { artistHref } from "./slug";
-import { ShareButton } from "./share";
 import { Avatar, Cover, Empty, Scene, SignInButton, TopBar, openLink, useLoad } from "./ui";
 
 export function HomeScreen({
@@ -98,27 +97,11 @@ function HomeBody({
         ) : null}
         {artist && home.artist ? (
           <section className="studio">
-            <div className="studio-card">
-              <a className="studio-cover" href={artistHref(home.artist)} onClick={openMine}>
-                <Cover url={home.artist.imageURL} alt="" width={480} height={640} />
-              </a>
-              <div className="studio-copy">
-                <p className="studio-kicker">Your page</p>
-                <h2>{home.artist.name}</h2>
-                <div className="studio-actions">
-                  <a className="primary" href={artistHref(home.artist)} onClick={openMine}>
-                    View page
-                  </a>
-                  <button type="button" className="secondary" onClick={() => go(`/artist/${home.artist?.id}/edit`)}>
-                    Edit
-                  </button>
-                  <button type="button" className="secondary" onClick={() => go("/events/new")}>
-                    New event
-                  </button>
-                  <ShareButton title={home.artist.name} text={home.artist.name} path={artistHref(home.artist)} label={`Share ${home.artist.name}`} />
-                </div>
-              </div>
-            </div>
+            <a className="studio-card" href={artistHref(home.artist)} onClick={openMine}>
+              <Cover url={home.artist.imageURL} alt="" width={480} height={640} />
+              <span className="studio-card-shade" aria-hidden="true" />
+              <span className="studio-card-name">{home.artist.name}</span>
+            </a>
           </section>
         ) : null}
         <h2 className="section-label">Artists</h2>

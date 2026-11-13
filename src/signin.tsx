@@ -1,7 +1,6 @@
 import { useEffect, useRef, useState, type ClipboardEvent, type FormEvent, type KeyboardEvent as ReactKeyboardEvent } from "react";
-import { rememberInvite } from "./inviteApi";
 import { cleanEmail, validEmail } from "./profile";
-import { inviteCodeFromPath, returnPathFromSearch, safeReturnPath } from "./routes";
+import { returnPathFromSearch, safeReturnPath } from "./routes";
 import { authFailure, requestCode, verifyCode } from "./services";
 import { Field } from "./ui";
 
@@ -35,8 +34,6 @@ export function writePendingSignIn(pending: PendingSignIn | null) {
 
 export function rememberReturnPath(path: string): string {
   const safe = safeReturnPath(path) || "/";
-  const code = inviteCodeFromPath(safe);
-  if (code) rememberInvite(code);
   try {
     sessionStorage.setItem(RETURN_KEY, safe);
   } catch {

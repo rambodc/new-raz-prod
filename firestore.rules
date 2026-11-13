@@ -3,20 +3,16 @@ service cloud.firestore {
   match /databases/{database}/documents {
 
     // users/{uid}: firstName, lastName, email, photoURL, role, createdAt, updatedAt.
-    // Optional invitedBy and inviteCode are written by Cloud Functions when a new account
-    // arrives through an invite. Clients can never set or change them.
     // role is "fan" or "artist". Clients create fans only and can never change role or email.
+    // invitedBy, inviteCode, and signupCounted are rejected.
     // artists/{uid}: name, bio, imageURL, ownerUid, slug, createdAt, updatedAt, optional ogRevision.
     //   Public read. Created by setUserRole (Admin SDK), which also claims slugs/{slug}.
     //   The owner may update name, bio and imageURL only. slug and ogRevision stay put.
     // slugs/{slug}: { artistId, kind: "artist" }. Public get so a share URL can resolve. Clients cannot write.
     // events/{eventId}: artistId, title, startsAt, venue, city, description, imageURL, ticketUrl,
-    //   visibility ("public" | "private"), showGuestList, slug, createdAt, updatedAt, optional ogRevision.
-    //   Public events are world-readable. A private event is readable by the owning artist,
-    //   someone with events/{eventId}/access/{uid} (written only by a function after a valid invite),
-    //   or someone whose events/{eventId}/rsvps/{uid} says status "going".
-    //   Clients cannot write rsvps, access, stats, or invites. Invites live in invites/{code}
-    //   and are server-only, so a code cannot be listed or forged.
+    //   slug, createdAt, updatedAt, optional ogRevision.
+    //   Every event is public, including venue and city. visibility and showGuestList are rejected.
+    //   invites, inviteOpens, and events/{eventId}/{access,rsvps,stats,invites} are closed.
     // artists/{artistId}/eventShares/{slug}: { eventId }. The per-artist lock for an event share URL.
     // artists/{artistId}/trackShares/{slug}: { trackId }. The per-artist lock for a track share URL.
     // artists/{artistId}/tracks/{trackId}: title, duration, order, audioURL, coverURL, slug, createdAt, updatedAt.
@@ -54,35 +50,9 @@ service cloud.firestore {
       );
     }
 
-    function optionalAttribution(d) {
-      return (!('invitedBy' in d) || (
-          d.invitedBy is string && d.invitedBy.size() <= 128 && d.invitedBy.matches('^[A-Za-z0-9]*$')
-        ))
-        && (!('inviteCode' in d) || (
-          d.inviteCode is string && d.inviteCode.size() <= 16 && d.inviteCode.matches('^[a-z0-9]*$')
-        ))
-        && (!('signupCounted' in d) || d.signupCounted is bool);
-    }
-
-    function attributionHeld(before, after) {
-      return (
-          (!('invitedBy' in before) && !('invitedBy' in after))
-          || (('invitedBy' in before) && after.invitedBy == before.invitedBy)
-        )
-        && (
-          (!('inviteCode' in before) && !('inviteCode' in after))
-          || (('inviteCode' in before) && after.inviteCode == before.inviteCode)
-        )
-        && (
-          (!('signupCounted' in before) && !('signupCounted' in after))
-          || (('signupCounted' in before) && after.signupCounted == before.signupCounted)
-        );
-    }
-
     function validUser(d) {
-      return d.keys().hasOnly(['firstName', 'lastName', 'email', 'photoURL', 'role', 'createdAt', 'updatedAt', 'invitedBy', 'inviteCode', 'signupCounted'])
+      return d.keys().hasOnly(['firstName', 'lastName', 'email', 'photoURL', 'role', 'createdAt', 'updatedAt'])
         && d.keys().hasAll(['firstName', 'lastName', 'email', 'photoURL', 'role', 'createdAt', 'updatedAt'])
-        && optionalAttribution(d)
         && validName(d.firstName)
         && validName(d.lastName)
         && d.email is string
@@ -102,17 +72,13 @@ service cloud.firestore {
         && validUser(request.resource.data)
         && request.resource.data.role == 'fan'
         && request.resource.data.createdAt == request.time
-        && request.resource.data.updatedAt == request.time
-        && (!('invitedBy' in request.resource.data) || request.resource.data.invitedBy == '')
-        && (!('inviteCode' in request.resource.data) || request.resource.data.inviteCode == '')
-        && (!('signupCounted' in request.resource.data) || request.resource.data.signupCounted == false);
+        && request.resource.data.updatedAt == request.time;
       allow update: if isOwner(userId)
         && validUser(request.resource.data)
         && request.resource.data.createdAt == resource.data.createdAt
         && request.resource.data.role == resource.data.role
         && request.resource.data.email == resource.data.email
         && request.resource.data.updatedAt == request.time
-        && attributionHeld(resource.data, request.resource.data)
         && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['firstName', 'lastName', 'photoURL', 'updatedAt']);
       allow list, delete: if false;
     }
@@ -255,19 +221,11 @@ service cloud.firestore {
       );
     }
 
-    function eventIsPublic() {
-      return resource.data.visibility == 'public';
-    }
-
-    function eventOwner() {
-      return request.auth != null && resource.data.artistId == request.auth.uid;
-    }
-
     function validEvent(eventId) {
       let d = request.resource.data;
       return safeId(eventId)
-        && d.keys().hasOnly(['artistId', 'title', 'startsAt', 'venue', 'city', 'description', 'imageURL', 'ticketUrl', 'createdAt', 'updatedAt', 'slug', 'visibility', 'showGuestList', 'ogRevision'])
-        && d.keys().hasAll(['artistId', 'title', 'startsAt', 'venue', 'city', 'description', 'imageURL', 'ticketUrl', 'createdAt', 'updatedAt', 'slug', 'visibility', 'showGuestList'])
+        && d.keys().hasOnly(['artistId', 'title', 'startsAt', 'venue', 'city', 'description', 'imageURL', 'ticketUrl', 'createdAt', 'updatedAt', 'slug', 'ogRevision'])
+        && d.keys().hasAll(['artistId', 'title', 'startsAt', 'venue', 'city', 'description', 'imageURL', 'ticketUrl', 'createdAt', 'updatedAt', 'slug'])
         && d.artistId == request.auth.uid
         && textOk(d.title, 120)
         && d.startsAt is timestamp
@@ -281,18 +239,13 @@ service cloud.firestore {
         && validSlugValue(d.slug)
         && d.slug != 't'
         && (request.method == 'create' || d.slug == resource.data.slug)
-        && (d.visibility == 'public' || d.visibility == 'private')
-        && d.showGuestList is bool
         && optionalRevision(d)
         && (request.method != 'create' || !('ogRevision' in d));
     }
 
-    // Public events are readable by anyone. Private events are readable by the owning artist.
-    // A list has to name visibility or the owner, so a fan cannot pull someone else's private nights.
+    // Every event is public. Venue and city are part of the document, so they are visible too.
     match /events/{eventId} {
-      allow get: if eventIsPublic() || eventOwner();
-      allow get: if goingHere(eventId) || accessHere(eventId);
-      allow list: if resource.data.visibility == 'public' || eventOwner();
+      allow get, list: if true;
       allow create: if callerIsArtist()
         && validEvent(eventId)
         && request.resource.data.createdAt == request.time
@@ -306,59 +259,8 @@ service cloud.firestore {
         && request.resource.data.slug == resource.data.slug
         && (!('ogRevision' in resource.data) || request.resource.data.ogRevision == resource.data.ogRevision)
         && request.resource.data.diff(resource.data).affectedKeys()
-          .hasOnly(['title', 'startsAt', 'venue', 'city', 'description', 'imageURL', 'ticketUrl', 'visibility', 'showGuestList', 'updatedAt']);
+          .hasOnly(['title', 'startsAt', 'venue', 'city', 'description', 'imageURL', 'ticketUrl', 'updatedAt']);
       allow delete: if callerIsArtist() && resource.data.artistId == request.auth.uid;
-
-      // A function writes this after a valid invite. The person can see their own grant. Nobody can list or forge one.
-      match /access/{uid} {
-        allow get: if isOwner(uid);
-        allow list, write: if false;
-      }
-
-      // RSVPs are written only by rsvpGoing / rsvpCancel. Guests do not get a list, so invite attribution stays with the host.
-      match /rsvps/{uid} {
-        allow get: if isOwner(uid) || (request.auth != null && get(/databases/$(database)/documents/events/$(eventId)).data.artistId == request.auth.uid);
-        allow list: if request.auth != null && get(/databases/$(database)/documents/events/$(eventId)).data.artistId == request.auth.uid;
-        allow write: if false;
-      }
-
-      // public is a count. host is opens, RSVPs, and new signups. Clients cannot write either.
-      match /stats/{statId} {
-        allow get: if (statId == 'public' && (
-            get(/databases/$(database)/documents/events/$(eventId)).data.visibility == 'public'
-            || (request.auth != null && get(/databases/$(database)/documents/events/$(eventId)).data.artistId == request.auth.uid)
-            || (request.auth != null && exists(/databases/$(database)/documents/events/$(eventId)/access/$(request.auth.uid)))
-            || (request.auth != null && exists(/databases/$(database)/documents/events/$(eventId)/rsvps/$(request.auth.uid))
-              && get(/databases/$(database)/documents/events/$(eventId)/rsvps/$(request.auth.uid)).data.status == 'going')
-          ))
-          || (statId == 'host' && request.auth != null && get(/databases/$(database)/documents/events/$(eventId)).data.artistId == request.auth.uid);
-        allow list, write: if false;
-      }
-
-      // Old placeholder path. Invites live in the top-level invites collection and stay server-only.
-      match /invites/{inviteId} {
-        allow read, write: if false;
-      }
-    }
-
-    // Invite codes and open dedupe records. Only Cloud Functions (Admin SDK) touch these.
-    match /invites/{code} {
-      allow read, write: if false;
-    }
-
-    match /inviteOpens/{openId} {
-      allow read, write: if false;
-    }
-
-    function goingHere(eventId) {
-      return request.auth != null
-        && exists(/databases/$(database)/documents/events/$(eventId)/rsvps/$(request.auth.uid))
-        && get(/databases/$(database)/documents/events/$(eventId)/rsvps/$(request.auth.uid)).data.status == 'going';
-    }
-
-    function accessHere(eventId) {
-      return request.auth != null
-        && exists(/databases/$(database)/documents/events/$(eventId)/access/$(request.auth.uid));
     }
 
     function urlInTracks(url, artistId) {
@@ -458,14 +360,13 @@ service cloud.firestore {
       allow list, create, update, delete: if false;
     }
 
-    function linkedEventPublic(artistId) {
+    function linkedEvent(artistId) {
       let eventId = resource.data.eventId;
       let eventPath = /databases/$(database)/documents/events/$(eventId);
       return eventId is string
         && safeId(eventId)
         && exists(eventPath)
-        && get(eventPath).data.artistId == artistId
-        && get(eventPath).data.visibility == 'public';
+        && get(eventPath).data.artistId == artistId;
     }
 
     // Publish writes the event and this lock in one batch. exists/get still see the
@@ -479,7 +380,7 @@ service cloud.firestore {
 
     // One event slug per artist. Create only when the event says this slug and this owner.
     match /artists/{artistId}/eventShares/{slug} {
-      allow get: if (request.auth != null && request.auth.uid == artistId) || linkedEventPublic(artistId);
+      allow get: if linkedEvent(artistId);
       allow list: if false;
       allow create: if ownsArtistPage(artistId)
         && slug.matches('^[a-z0-9]+(-[a-z0-9]+)*$')

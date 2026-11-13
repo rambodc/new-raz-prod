@@ -49,5 +49,5 @@ jobs:
           path: ~/.npm/_npx
           key: firebase-tools-${{ env.FIREBASE_TOOLS_VERSION }}-${{ runner.os }}
       # --force lets a non-interactive deploy delete functions that were removed from the source
-      # (the retired chat functions) instead of failing on the confirmation prompt.
+      # instead of failing on the confirmation prompt.
       - run: npx --yes firebase-tools@${{ env.FIREBASE_TOOLS_VERSION }} deploy --only functions --force --project new-raz-prod --non-interactive --message "CI functions deploy"

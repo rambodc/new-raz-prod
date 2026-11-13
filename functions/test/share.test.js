@@ -2,7 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { createCanvas, loadImage } from "@napi-rs/canvas";
-import { eventSubtitle, injectShareMeta, isPublicEvent, shareMeta } from "../lib/og.js";
+import { eventSubtitle, injectShareMeta, shareMeta } from "../lib/og.js";
 import { renderOgCard } from "../lib/ogImage.js";
 import { parseSharePath, slugCandidates, slugify } from "../lib/slug.js";
 import { syncArtistRecord, syncEventRecord, syncTrackRecord } from "../lib/shares.js";
@@ -60,13 +60,12 @@ test("slugs stay lowercase and skip reserved words", () => {
   assert.equal(parseSharePath("/ada-vale").kind, "artist");
   assert.equal(parseSharePath("/ada-vale/river-room").eventSlug, "river-room");
   assert.equal(parseSharePath("/ada-vale/t/midnight").trackSlug, "midnight");
-  assert.equal(parseSharePath("/i/bcdefghjkm").kind, "invite");
-  assert.equal(parseSharePath("/i/bcdefghjkm").code, "bcdefghjkm");
+  assert.equal(parseSharePath("/i/bcdefghjkm").kind, "spa");
   assert.equal(parseSharePath("/settings").kind, "spa");
   assert.equal(parseSharePath("/artist/nova").kind, "spa");
 });
 
-test("a public event link carries Open Graph tags and a private event does not", async () => {
+test("an event link carries Open Graph tags, including the venue", async () => {
   const image = "https://firebasestorage.googleapis.com/v0/b/new-raz-prod.firebasestorage.app/o/og%2Fevents%2Fe1.jpg?alt=media&v=abc";
   const records = {
     "slugs/ada-vale": { artistId: "ada", kind: "artist" },
@@ -77,7 +76,6 @@ test("a public event link carries Open Graph tags and a private event does not",
       artistId: "ada",
       title: "River Room",
       slug: "river-room",
-      visibility: "public",
       venue: "Hall",
       city: "Calgary",
       description: "A late set",
@@ -88,7 +86,6 @@ test("a public event link carries Open Graph tags and a private event does not",
       artistId: "ada",
       title: "Secret Set",
       slug: "secret-set",
-      visibility: "private",
       venue: "Loft",
       city: "Calgary",
       description: "Invite only",
@@ -114,18 +111,17 @@ test("a public event link carries Open Graph tags and a private event does not",
   assert.match(pub.html, /<div id="root">/);
   assert.equal(pub.cache.includes("public"), true);
 
-  const hidden = await composeSharePage({
+  const second = await composeSharePage({
     path: "/ada-vale/secret-set",
     origin: "https://new-raz-prod.web.app",
     indexHtml: shell,
     db,
     ensureImage: async () => image,
   });
-  assert.equal(hidden.html.includes("Secret Set"), false);
-  assert.equal(hidden.html.includes("Invite only"), false);
-  assert.match(hidden.html, /property="og:title" content="Ada Vale"/);
-  assert.equal(hidden.cache, "private, no-store");
-  assert.equal(isPublicEvent(records["events/e2"]), false);
+  assert.match(second.html, /property="og:title" content="Secret Set · Ada Vale"/);
+  assert.match(second.html, /Invite only/);
+  assert.equal(second.cache.includes("public"), true);
+  assert.match(eventSubtitle(records["events/e2"]), /Loft, Calgary/);
   assert.equal(shareMeta({ origin: "https://new-raz-prod.web.app", parsed: parseSharePath("/ada-vale"), model: { artist: records["artists/ada"], event: null, track: null } }).title, "Ada Vale");
   assert.match(eventSubtitle(records["events/e1"]), /Hall, Calgary/);
 });
@@ -141,26 +137,23 @@ test("inject escapes quotes in titles", () => {
   assert.match(html, /Bass &amp; nights/);
 });
 
-test("a missing slug or visibility is not invented", async () => {
-  assert.equal(isPublicEvent({}), false);
-  assert.equal(isPublicEvent({ visibility: null }), false);
-  assert.equal(isPublicEvent({ visibility: "public" }), true);
+test("a missing slug is not invented, and an event slug keeps its preview", async () => {
   const records = {
     "artists/ada": { name: "Ada Vale", bio: "", imageURL: "", ownerUid: "ada" },
     "artists/ada/tracks/t1": { title: "Midnight" },
     "events/e1": { artistId: "ada", title: "River Room" },
-    "events/e2": { artistId: "ada", title: "Secret Set", slug: "secret-set", visibility: "private" },
+    "events/e2": { artistId: "ada", title: "Secret Set", slug: "secret-set", venue: "Loft", city: "Calgary" },
   };
   const db = fakeDb(records);
   await syncArtistRecord(db, null, "ada", records["artists/ada"], async () => "");
-  await syncEventRecord(db, null, "e1", records["events/e1"], async () => "");
-  await syncEventRecord(db, null, "e2", records["events/e2"], async () => "");
+  await syncEventRecord(db, "e1", records["events/e1"], async () => "");
+  await syncEventRecord(db, "e2", records["events/e2"], async () => "");
   await syncTrackRecord(db, null, "ada", "t1", records["artists/ada/tracks/t1"], async () => "");
   assert.equal(records["artists/ada"].slug, undefined);
-  assert.equal(records["events/e1"].visibility, undefined);
   assert.equal(records["events/e1"].slug, undefined);
-  assert.equal(records["events/e2"].visibility, "private");
+  assert.equal(records["events/e1"].ogRevision, undefined);
   assert.equal(records["events/e2"].slug, "secret-set");
+  assert.equal(typeof records["events/e2"].ogRevision, "string");
   assert.equal(records["artists/ada/tracks/t1"].slug, undefined);
   assert.equal(records["artists/ada/eventShares/secret-set"].eventId, "e2");
 });

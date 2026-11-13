@@ -67,34 +67,9 @@ service firebase.storage {
       allow delete: if isArtistUser() && safeId(artistId) && request.auth.uid == artistId;
     }
 
-    function eventIsPublic(eventId) {
-      return firestore.exists(eventDoc(eventId))
-        && firestore.get(eventDoc(eventId)).data.visibility == 'public';
-    }
-
-    function eventAccess(eventId) {
-      return /databases/(default)/documents/events/$(eventId)/access/$(request.auth.uid);
-    }
-
-    function eventRsvp(eventId) {
-      return /databases/(default)/documents/events/$(eventId)/rsvps/$(request.auth.uid);
-    }
-
-    function invitedToEvent(eventId) {
-      return signedIn() && (
-        firestore.exists(eventAccess(eventId))
-        || (
-          firestore.exists(eventRsvp(eventId))
-          && firestore.get(eventRsvp(eventId)).data.status == 'going'
-        )
-      );
-    }
-
-    // Public event images are world-readable.
-    // A private event image is readable by its artist, someone granted access, or someone Going.
-    // Signed-out visitors never read a private cover here. Their invite page uses the cover function.
+    // Event images are public to read. Only the owning artist can write one.
     match /events/{eventId}/{file} {
-      allow read: if eventIsPublic(eventId) || (signedIn() && ownsEvent(eventId)) || invitedToEvent(eventId);
+      allow read: if true;
       allow create, update: if isArtistUser()
         && safeId(eventId)
         && safeFile(file)

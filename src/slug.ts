@@ -2,13 +2,6 @@
 
 export const SLUG_RE = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
 
-// Keep in step with functions/lib/slug.js. Invite codes are not slugs.
-export const INVITE_CODE_RE = /^[abcdefghjkmnpqrstuvwxyz23456789]{10}$/;
-
-export function isInviteCode(value: string): boolean {
-  return INVITE_CODE_RE.test(value);
-}
-
 export const RESERVED = new Set([
   "about",
   "account",

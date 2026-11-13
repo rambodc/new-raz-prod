@@ -8,7 +8,7 @@ export function ogRevision(parts) {
 /** One hash for the trigger and the share function, so they do not rebuild the same card. */
 export function previewRevision(kind, record, artistName = "") {
   if (kind === "event") {
-    return ogRevision(["event", record.slug, record.title, record.imageURL, eventSubtitle(record), record.visibility]);
+    return ogRevision(["event", record.slug, record.title, record.imageURL, eventSubtitle(record)]);
   }
   if (kind === "track") {
     return ogRevision(["track", record.slug, record.title, record.coverURL, artistName]);
@@ -32,10 +32,6 @@ export function clip(text, max) {
   return `${Array.from(value).slice(0, max - 1).join("").trimEnd()}…`;
 }
 
-export function isPublicEvent(data) {
-  return data?.visibility === "public";
-}
-
 export function eventSubtitle(event) {
   const date = typeof event?.startsAt?.toDate === "function" ? event.startsAt.toDate() : new Date(event?.startsAt);
   const when = Number.isNaN(date.getTime())
@@ -54,11 +50,11 @@ export function eventSubtitle(event) {
 
 /**
  * Tags crawlers read. Real browsers still receive the SPA shell this is injected into.
- * Private events never contribute a title, description, or image.
+ * Every event is public, including its venue and city.
  */
 export function shareMeta({ origin, parsed, model }) {
   const artist = model?.artist;
-  const event = model?.event && isPublicEvent(model.event) ? model.event : null;
+  const event = model?.event ?? null;
   const track = model?.track ?? null;
   const artistUrl = artist?.slug ? `${origin}${artistPath(artist.slug)}` : origin;
   if (!artist) {
@@ -71,7 +67,6 @@ export function shareMeta({ origin, parsed, model }) {
       cardTitle: "Razzberry",
       cardSubtitle: "",
       cache: "public, max-age=60",
-      privateEvent: false,
     };
   }
   const bio = clip(artist.bio, 160) || `Upcoming nights and music from ${artist.name}.`;
@@ -86,7 +81,6 @@ export function shareMeta({ origin, parsed, model }) {
       cardTitle: event.title,
       cardSubtitle: subtitle,
       cache: "public, max-age=300, s-maxage=600",
-      privateEvent: false,
     };
   }
   if (parsed.kind === "track" && track) {
@@ -99,10 +93,8 @@ export function shareMeta({ origin, parsed, model }) {
       cardTitle: track.title,
       cardSubtitle: artist.name,
       cache: "public, max-age=300, s-maxage=600",
-      privateEvent: false,
     };
   }
-  const hiddenPrivate = parsed.kind === "event" && model?.event && !event;
   return {
     title: artist.name,
     description: bio,
@@ -111,8 +103,7 @@ export function shareMeta({ origin, parsed, model }) {
     imageSource: artist.imageURL || "",
     cardTitle: artist.name,
     cardSubtitle: clip(artist.bio, 80),
-    cache: hiddenPrivate ? "private, no-store" : "public, max-age=300, s-maxage=600",
-    privateEvent: hiddenPrivate,
+    cache: "public, max-age=300, s-maxage=600",
   };
 }
 
